@@ -1,14 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Sidebar } from '../components/Sidebar';
 import { ChatHeader } from '../components/ChatHeader';
 import { ChatTimeline } from '../components/ChatTimeline';
 import { ChatInput } from '../components/ChatInput';
-import { ChatManagementDrawer } from '../components/ChatManagementDrawer';
 import { MobileNavBar } from '../components/MobileNavBar';
 import { ChatOverviewPanel } from '../components/ChatOverviewPanel';
 import { sampleChats, Chat } from '../data/sampleChats';
-import { useToggle } from '../hooks/useToggle';
 
 import agentAvatar from '../assets/agent-avatar.png';
 import userAvatar from '../assets/default-user.svg';
@@ -17,8 +15,11 @@ export function ChatPage() {
   const navigate = useNavigate();
   const [chats, setChats] = useState<Chat[]>(sampleChats);
   const [activeChatId, setActiveChatId] = useState<string>(sampleChats[0]?.id ?? '');
-  const [isDrawerOpen, toggleDrawer, setDrawerOpen] = useToggle(false);
   const [isOverviewCollapsed, setOverviewCollapsed] = useState(false);
+  const [isMobileOverviewOpen, setMobileOverviewOpen] = useState(false);
+  const [customFolders, setCustomFolders] = useState<string[]>([]);
+  const [chatBackground, setChatBackground] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const activeChat = useMemo(
     () => chats.find((chat) => chat.id === activeChatId) ?? chats[0],
@@ -53,12 +54,96 @@ export function ChatPage() {
     setChats((prev) => [newChat, ...prev]);
     setActiveChatId(newChat.id);
     setOverviewCollapsed(false);
-    setDrawerOpen(false);
+    setMobileOverviewOpen(false);
   };
 
   const handleSelectChat = (chatId: string) => {
     setActiveChatId(chatId);
-    setDrawerOpen(false);
+    setMobileOverviewOpen(false);
+  };
+
+  const handleRenameChat = (chatId: string) => {
+    const chatToRename = chats.find((chat) => chat.id === chatId);
+    if (!chatToRename) {
+      return;
+    }
+
+    const newName = window.prompt('Wie soll der Chat heißen?', chatToRename.name)?.trim();
+    if (!newName || newName === chatToRename.name) {
+      return;
+    }
+
+    setChats((prev) =>
+      prev.map((chat) =>
+        chat.id === chatId
+          ? {
+              ...chat,
+              name: newName
+            }
+          : chat
+      )
+    );
+  };
+
+  const handleDeleteChat = (chatId: string) => {
+    const chatToDelete = chats.find((chat) => chat.id === chatId);
+    if (!chatToDelete) {
+      return;
+    }
+
+    const shouldDelete = window.confirm(
+      `Soll der Chat "${chatToDelete.name}" wirklich gelöscht werden?`
+    );
+
+    if (!shouldDelete) {
+      return;
+    }
+
+    setChats((prev) => prev.filter((chat) => chat.id !== chatId));
+
+    setActiveChatId((currentId) => {
+      if (currentId !== chatId) {
+        return currentId;
+      }
+
+      const remainingChats = chats.filter((chat) => chat.id !== chatId);
+      return remainingChats[0]?.id ?? '';
+    });
+  };
+
+  const handleCreateFolder = () => {
+    const folderName = window.prompt('Wie soll der neue Ordner heißen?')?.trim();
+    if (!folderName) {
+      return;
+    }
+
+    setCustomFolders((prev) => {
+      if (prev.includes(folderName)) {
+        return prev;
+      }
+
+      return [...prev, folderName];
+    });
+  };
+
+  const handleBackgroundUpload = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      setChatBackground(typeof reader.result === 'string' ? reader.result : null);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleResetBackground = () => {
+    setChatBackground(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
   };
 
   return (
@@ -66,14 +151,7 @@ export function ChatPage() {
       <MobileNavBar
         onNewChat={handleNewChat}
         onOpenSettings={() => navigate('/settings')}
-        onToggleDrawer={toggleDrawer}
-      />
-
-      <ChatManagementDrawer
-        chats={chats}
-        isOpen={isDrawerOpen}
-        onClose={toggleDrawer}
-        onSelectChat={handleSelectChat}
+        onToggleOverview={() => setMobileOverviewOpen(true)}
       />
 
       <div className="flex flex-1">
@@ -83,7 +161,7 @@ export function ChatPage() {
           onChatSelect={handleSelectChat}
           onNewChat={handleNewChat}
           onOpenSettings={() => navigate('/settings')}
-          onToggleDrawer={toggleDrawer}
+          onShowOverview={() => setOverviewCollapsed(false)}
         />
 
         <main className="flex flex-1 flex-col">
@@ -91,22 +169,51 @@ export function ChatPage() {
             agentName="AITI Agent"
             agentRole="N8n Workflow Companion"
             agentStatus="online"
-            onToggleDrawer={toggleDrawer}
+            onOpenOverview={() => setMobileOverviewOpen(true)}
             onOpenSettings={() => navigate('/settings')}
             agentAvatar={agentAvatar}
           />
 
-          <div className="hidden xl:flex justify-end px-8 pt-4">
+          <div className="flex justify-between px-4 pt-4 md:px-8">
+            <div className="flex items-center gap-2 text-xs text-white/40">
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="rounded-full border border-white/10 px-4 py-2 text-xs font-medium uppercase tracking-[0.3em] text-white/60 hover:bg-white/10"
+              >
+                Hintergrund wählen
+              </button>
+              {chatBackground && (
+                <button
+                  onClick={handleResetBackground}
+                  className="rounded-full border border-white/10 px-4 py-2 text-xs font-medium uppercase tracking-[0.3em] text-white/60 hover:bg-white/10"
+                >
+                  Hintergrund entfernen
+                </button>
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleBackgroundUpload}
+                className="hidden"
+              />
+            </div>
+
             <button
               onClick={() => setOverviewCollapsed((prev) => !prev)}
-              className="rounded-full border border-white/10 px-4 py-2 text-xs font-medium uppercase tracking-[0.3em] text-white/40 hover:bg-white/10"
+              className="hidden xl:inline-flex rounded-full border border-white/10 px-4 py-2 text-xs font-medium uppercase tracking-[0.3em] text-white/60 hover:bg-white/10"
             >
-              {isOverviewCollapsed ? 'Verwaltung anzeigen' : 'Verwaltung ausblenden'}
+              {isOverviewCollapsed ? 'Übersicht anzeigen' : 'Übersicht ausblenden'}
             </button>
           </div>
 
           {activeChat && (
-            <ChatTimeline chat={activeChat} agentAvatar={agentAvatar} userAvatar={userAvatar} />
+            <ChatTimeline
+              chat={activeChat}
+              agentAvatar={agentAvatar}
+              userAvatar={userAvatar}
+              backgroundImage={chatBackground ?? undefined}
+            />
           )}
 
           <div className="px-4 pb-28 pt-2 md:px-8 md:pb-10">
@@ -122,6 +229,13 @@ export function ChatPage() {
           activeChatId={activeChat?.id ?? ''}
           onSelectChat={handleSelectChat}
           isCollapsed={isOverviewCollapsed}
+          isMobileOpen={isMobileOverviewOpen}
+          onCloseMobile={() => setMobileOverviewOpen(false)}
+          onToggleCollapse={() => setOverviewCollapsed((prev) => !prev)}
+          onCreateFolder={handleCreateFolder}
+          onRenameChat={handleRenameChat}
+          onDeleteChat={handleDeleteChat}
+          customFolders={customFolders}
         />
       </div>
     </div>
