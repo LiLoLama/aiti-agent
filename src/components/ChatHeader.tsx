@@ -6,7 +6,7 @@ interface ChatHeaderProps {
   agentName: string;
   agentRole: string;
   agentStatus: 'online' | 'offline' | 'busy';
-  onToggleDrawer: () => void;
+  onOpenOverview: () => void;
   onOpenSettings: () => void;
   agentAvatar: string;
 }
@@ -21,7 +21,7 @@ export function ChatHeader({
   agentName,
   agentRole,
   agentStatus,
-  onToggleDrawer,
+  onOpenOverview,
   onOpenSettings,
   agentAvatar
 }: ChatHeaderProps) {
@@ -41,7 +41,7 @@ export function ChatHeader({
       <div className="flex items-center gap-4">
         <button
           className="lg:hidden rounded-full bg-white/10 p-2 text-white/80 hover:bg-white/20 transition"
-          onClick={onToggleDrawer}
+          onClick={onOpenOverview}
         >
           <Bars3Icon className="h-5 w-5" />
         </button>

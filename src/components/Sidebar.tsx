@@ -9,7 +9,7 @@ interface SidebarProps {
   onChatSelect: (chatId: string) => void;
   onNewChat: () => void;
   onOpenSettings: () => void;
-  onToggleDrawer: () => void;
+  onShowOverview: () => void;
 }
 
 export function Sidebar({
@@ -18,7 +18,7 @@ export function Sidebar({
   onChatSelect,
   onNewChat,
   onOpenSettings,
-  onToggleDrawer
+  onShowOverview
 }: SidebarProps) {
   const chatsByFolder = useMemo(() => {
     const grouped = chats.reduce<Record<string, Chat[]>>((acc, chat) => {
@@ -39,7 +39,7 @@ export function Sidebar({
             <h2 className="text-xl font-semibold text-white">AI Training Studio</h2>
           </div>
           <button
-            onClick={onToggleDrawer}
+            onClick={onShowOverview}
             className="px-3 py-2 text-xs font-medium rounded-full bg-white/10 text-white/80 hover:bg-white/20 transition"
           >
             Übersicht
