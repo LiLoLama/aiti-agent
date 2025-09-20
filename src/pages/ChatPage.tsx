@@ -1,6 +1,5 @@
-import { useMemo, useRef, useState, type ChangeEvent } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Sidebar } from '../components/Sidebar';
 import { ChatHeader } from '../components/ChatHeader';
 import { ChatTimeline } from '../components/ChatTimeline';
 import { ChatInput } from '../components/ChatInput';
@@ -15,16 +14,39 @@ export function ChatPage() {
   const navigate = useNavigate();
   const [chats, setChats] = useState<Chat[]>(sampleChats);
   const [activeChatId, setActiveChatId] = useState<string>(sampleChats[0]?.id ?? '');
-  const [isOverviewCollapsed, setOverviewCollapsed] = useState(false);
-  const [isMobileOverviewOpen, setMobileOverviewOpen] = useState(false);
+  const [isWorkspaceCollapsed, setWorkspaceCollapsed] = useState(false);
+  const [isMobileWorkspaceOpen, setMobileWorkspaceOpen] = useState(false);
   const [customFolders, setCustomFolders] = useState<string[]>([]);
-  const [chatBackground, setChatBackground] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [chatBackground, setChatBackground] = useState<string | null>(() => {
+    if (typeof window === 'undefined') {
+      return null;
+    }
+
+    return window.localStorage.getItem('chatBackgroundImage');
+  });
 
   const activeChat = useMemo(
     () => chats.find((chat) => chat.id === activeChatId) ?? chats[0],
     [chats, activeChatId]
   );
+
+  useEffect(() => {
+    const updateBackgroundFromStorage = () => {
+      if (typeof window === 'undefined') {
+        return;
+      }
+
+      setChatBackground(window.localStorage.getItem('chatBackgroundImage'));
+    };
+
+    updateBackgroundFromStorage();
+
+    window.addEventListener('chat-background-change', updateBackgroundFromStorage);
+
+    return () => {
+      window.removeEventListener('chat-background-change', updateBackgroundFromStorage);
+    };
+  }, []);
 
   const handleNewChat = () => {
     const timestamp = new Date();
@@ -53,13 +75,13 @@ export function ChatPage() {
 
     setChats((prev) => [newChat, ...prev]);
     setActiveChatId(newChat.id);
-    setOverviewCollapsed(false);
-    setMobileOverviewOpen(false);
+    setWorkspaceCollapsed(false);
+    setMobileWorkspaceOpen(false);
   };
 
   const handleSelectChat = (chatId: string) => {
     setActiveChatId(chatId);
-    setMobileOverviewOpen(false);
+    setMobileWorkspaceOpen(false);
   };
 
   const handleRenameChat = (chatId: string) => {
@@ -126,42 +148,29 @@ export function ChatPage() {
     });
   };
 
-  const handleBackgroundUpload = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) {
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      setChatBackground(typeof reader.result === 'string' ? reader.result : null);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleResetBackground = () => {
-    setChatBackground(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  };
-
   return (
     <div className="relative flex min-h-screen flex-col bg-[#111111] text-white">
       <MobileNavBar
         onNewChat={handleNewChat}
         onOpenSettings={() => navigate('/settings')}
-        onToggleOverview={() => setMobileOverviewOpen(true)}
+        onToggleOverview={() => setMobileWorkspaceOpen(true)}
       />
 
       <div className="flex flex-1">
-        <Sidebar
+        <ChatOverviewPanel
           chats={chats}
           activeChatId={activeChat?.id ?? ''}
-          onChatSelect={handleSelectChat}
+          onSelectChat={handleSelectChat}
+          isCollapsed={isWorkspaceCollapsed}
+          isMobileOpen={isMobileWorkspaceOpen}
+          onCloseMobile={() => setMobileWorkspaceOpen(false)}
+          onToggleCollapse={() => setWorkspaceCollapsed((prev) => !prev)}
           onNewChat={handleNewChat}
+          onCreateFolder={handleCreateFolder}
+          onRenameChat={handleRenameChat}
+          onDeleteChat={handleDeleteChat}
+          customFolders={customFolders}
           onOpenSettings={() => navigate('/settings')}
-          onShowOverview={() => setOverviewCollapsed(false)}
         />
 
         <main className="flex flex-1 flex-col">
@@ -169,41 +178,17 @@ export function ChatPage() {
             agentName="AITI Agent"
             agentRole="N8n Workflow Companion"
             agentStatus="online"
-            onOpenOverview={() => setMobileOverviewOpen(true)}
+            onOpenOverview={() => setMobileWorkspaceOpen(true)}
             onOpenSettings={() => navigate('/settings')}
             agentAvatar={agentAvatar}
           />
 
-          <div className="flex justify-between px-4 pt-4 md:px-8">
-            <div className="flex items-center gap-2 text-xs text-white/40">
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="rounded-full border border-white/10 px-4 py-2 text-xs font-medium uppercase tracking-[0.3em] text-white/60 hover:bg-white/10"
-              >
-                Hintergrund wählen
-              </button>
-              {chatBackground && (
-                <button
-                  onClick={handleResetBackground}
-                  className="rounded-full border border-white/10 px-4 py-2 text-xs font-medium uppercase tracking-[0.3em] text-white/60 hover:bg-white/10"
-                >
-                  Hintergrund entfernen
-                </button>
-              )}
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                onChange={handleBackgroundUpload}
-                className="hidden"
-              />
-            </div>
-
+          <div className="hidden justify-end px-4 pt-4 md:px-8 lg:flex">
             <button
-              onClick={() => setOverviewCollapsed((prev) => !prev)}
-              className="hidden xl:inline-flex rounded-full border border-white/10 px-4 py-2 text-xs font-medium uppercase tracking-[0.3em] text-white/60 hover:bg-white/10"
+              onClick={() => setWorkspaceCollapsed((prev) => !prev)}
+              className="rounded-full border border-white/10 px-4 py-2 text-xs font-medium uppercase tracking-[0.3em] text-white/60 transition hover:bg-white/10"
             >
-              {isOverviewCollapsed ? 'Übersicht anzeigen' : 'Übersicht ausblenden'}
+              {isWorkspaceCollapsed ? 'Workspace anzeigen' : 'Workspace ausblenden'}
             </button>
           </div>
 
@@ -223,20 +208,6 @@ export function ChatPage() {
             </p>
           </div>
         </main>
-
-        <ChatOverviewPanel
-          chats={chats}
-          activeChatId={activeChat?.id ?? ''}
-          onSelectChat={handleSelectChat}
-          isCollapsed={isOverviewCollapsed}
-          isMobileOpen={isMobileOverviewOpen}
-          onCloseMobile={() => setMobileOverviewOpen(false)}
-          onToggleCollapse={() => setOverviewCollapsed((prev) => !prev)}
-          onCreateFolder={handleCreateFolder}
-          onRenameChat={handleRenameChat}
-          onDeleteChat={handleDeleteChat}
-          customFolders={customFolders}
-        />
       </div>
     </div>
   );
