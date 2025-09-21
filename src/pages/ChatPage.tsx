@@ -19,6 +19,7 @@ import {
   saveCustomFolders
 } from '../utils/storage';
 import { sendWebhookMessage } from '../utils/webhook';
+import { applyColorScheme } from '../utils/theme';
 
 const formatTimestamp = (date: Date) =>
   date.toLocaleTimeString('de-DE', {
@@ -114,6 +115,10 @@ export function ChatPage() {
   useEffect(() => {
     setChatBackground(settings.chatBackgroundImage ?? null);
   }, [settings.chatBackgroundImage]);
+
+  useEffect(() => {
+    applyColorScheme(settings.colorScheme);
+  }, [settings.colorScheme]);
 
   useEffect(() => {
     saveChats(chats);
