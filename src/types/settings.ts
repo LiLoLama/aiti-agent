@@ -3,8 +3,8 @@ export type AgentAuthType = 'none' | 'apiKey' | 'basic' | 'oauth';
 export interface AgentSettings {
   profileName: string;
   profileRole: string;
-  profileAvatarImage?: string | null;
-  agentAvatarImage?: string | null;
+  profileAvatarImage: string | null;
+  agentAvatarImage: string | null;
   webhookUrl: string;
   authType: AgentAuthType;
   apiKey?: string;
@@ -14,7 +14,7 @@ export interface AgentSettings {
   responseFormat: 'text' | 'json';
   pushToTalkEnabled: boolean;
   colorScheme: 'light' | 'dark';
-  chatBackgroundImage?: string | null;
+  chatBackgroundImage: string | null;
 }
 
 export const DEFAULT_AGENT_SETTINGS: AgentSettings = {

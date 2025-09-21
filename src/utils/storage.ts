@@ -24,14 +24,23 @@ export function loadAgentSettings(): AgentSettings {
       ? parsed.colorScheme
       : DEFAULT_AGENT_SETTINGS.colorScheme;
 
+    const profileAvatarImage =
+      typeof parsed.profileAvatarImage === 'string' ? parsed.profileAvatarImage : null;
+    const agentAvatarImage =
+      typeof parsed.agentAvatarImage === 'string' ? parsed.agentAvatarImage : null;
+    const storedBackground = window.localStorage.getItem('chatBackgroundImage');
+    const chatBackgroundImage =
+      typeof parsed.chatBackgroundImage === 'string'
+        ? parsed.chatBackgroundImage
+        : storedBackground;
+
     return {
       ...DEFAULT_AGENT_SETTINGS,
       ...parsed,
       colorScheme,
-      profileAvatarImage: parsed.profileAvatarImage ?? null,
-      agentAvatarImage: parsed.agentAvatarImage ?? null,
-      chatBackgroundImage:
-        parsed.chatBackgroundImage ?? window.localStorage.getItem('chatBackgroundImage')
+      profileAvatarImage,
+      agentAvatarImage,
+      chatBackgroundImage: chatBackgroundImage ?? null
     };
   } catch (error) {
     console.error('Failed to load agent settings', error);
@@ -45,7 +54,21 @@ export function saveAgentSettings(settings: AgentSettings) {
   }
 
   try {
-    window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+    const prepared: AgentSettings = {
+      ...DEFAULT_AGENT_SETTINGS,
+      ...settings,
+      profileAvatarImage: settings.profileAvatarImage ?? null,
+      agentAvatarImage: settings.agentAvatarImage ?? null,
+      chatBackgroundImage: settings.chatBackgroundImage ?? null
+    };
+
+    window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(prepared));
+
+    if (prepared.chatBackgroundImage) {
+      window.localStorage.setItem('chatBackgroundImage', prepared.chatBackgroundImage);
+    } else {
+      window.localStorage.removeItem('chatBackgroundImage');
+    }
   } catch (error) {
     console.error('Failed to save agent settings', error);
   }

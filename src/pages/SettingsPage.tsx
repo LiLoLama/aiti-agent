@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeftIcon, CloudArrowUpIcon, PhotoIcon } from '@heroicons/react/24/outline';
+import { ArrowLeftIcon, PhotoIcon } from '@heroicons/react/24/outline';
 import clsx from 'clsx';
 
 import agentAvatar from '../assets/agent-avatar.png';
@@ -136,11 +136,14 @@ export function SettingsPage() {
     event.preventDefault();
     const payload: AgentSettings = {
       ...settings,
-      chatBackgroundImage: chatBackground
+      profileAvatarImage: settings.profileAvatarImage ?? null,
+      agentAvatarImage: settings.agentAvatarImage ?? null,
+      chatBackgroundImage: chatBackground ?? null
     };
 
     try {
       saveAgentSettings(payload);
+      setSettings(payload);
       window.dispatchEvent(
         new CustomEvent('aiti-settings-update', {
           detail: payload
@@ -205,16 +208,16 @@ export function SettingsPage() {
               </p>
               <div className="mt-6 flex flex-col gap-6 md:flex-row md:items-center">
                 <div className="flex flex-col items-center gap-3">
-                  <div className="relative h-24 w-24 overflow-hidden rounded-3xl border border-white/10 shadow-lg">
+                  <div className="h-24 w-24 overflow-hidden rounded-3xl border border-white/10 shadow-lg">
                     <img src={profileAvatarPreview} alt="User Avatar" className="h-full w-full object-cover" />
-                    <button
-                      type="button"
-                      onClick={() => profileAvatarInputRef.current?.click()}
-                      className="absolute inset-x-3 bottom-3 inline-flex items-center justify-center rounded-full bg-gradient-to-r from-brand-gold via-brand-deep to-brand-gold px-3 py-1 text-[10px] font-semibold text-surface-base shadow-glow"
-                    >
-                      Neu hochladen
-                    </button>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => profileAvatarInputRef.current?.click()}
+                    className="inline-flex items-center justify-center rounded-full bg-gradient-to-r from-brand-gold via-brand-deep to-brand-gold px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-surface-base shadow-glow"
+                  >
+                    Neu hochladen
+                  </button>
                   <button
                     type="button"
                     onClick={handleProfileAvatarReset}
@@ -379,43 +382,39 @@ export function SettingsPage() {
               <p className="mt-2 text-sm text-white/50">
                 Passe das Profilbild deines Agents an. Es wird überall dort angezeigt, wo dein Agent sichtbar ist.
               </p>
-              <div className="mt-6 flex flex-col gap-6 md:flex-row md:items-center">
-                <div className="relative h-24 w-24 overflow-hidden rounded-3xl border border-white/10 shadow-lg">
-                  <img src={agentAvatarPreview} alt="Agent Avatar" className="h-full w-full object-cover" />
+              <div className="mt-6 flex flex-col gap-6 md:flex-row md:items-start">
+                <div className="flex flex-col items-center gap-3">
+                  <div className="h-24 w-24 overflow-hidden rounded-3xl border border-white/10 shadow-lg">
+                    <img src={agentAvatarPreview} alt="Agent Avatar" className="h-full w-full object-cover" />
+                  </div>
                   <button
                     type="button"
                     onClick={() => agentAvatarInputRef.current?.click()}
-                    className="absolute inset-x-3 bottom-3 inline-flex items-center justify-center rounded-full bg-gradient-to-r from-brand-gold via-brand-deep to-brand-gold px-3 py-1 text-[10px] font-semibold text-surface-base shadow-glow"
+                    className="inline-flex items-center justify-center rounded-full bg-gradient-to-r from-brand-gold via-brand-deep to-brand-gold px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-surface-base shadow-glow"
                   >
                     Neu hochladen
                   </button>
+                  <button
+                    type="button"
+                    onClick={handleAgentAvatarReset}
+                    className="text-xs text-white/50 hover:text-white/80"
+                  >
+                    Zurücksetzen
+                  </button>
+                  <input
+                    ref={agentAvatarInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleAgentAvatarUpload}
+                    className="hidden"
+                  />
                 </div>
                 <div className="space-y-3 text-sm text-white/60">
                   <p>Dieses Bild erscheint im Chatkopf sowie bei allen Antworten des Agents.</p>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => agentAvatarInputRef.current?.click()}
-                      className="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-xs font-semibold text-white/70 transition hover:bg-white/10"
-                    >
-                      <CloudArrowUpIcon className="h-4 w-4 text-brand-gold" /> Bild auswählen
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleAgentAvatarReset}
-                      className="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-xs font-semibold text-white/60 transition hover:bg-white/10"
-                    >
-                      <PhotoIcon className="h-4 w-4" /> Zurücksetzen
-                    </button>
-                  </div>
+                  <p>
+                    Wähle ein repräsentatives Portrait für deinen Assistenten, um das Erlebnis in Web und App konsistent zu gestalten.
+                  </p>
                 </div>
-                <input
-                  ref={agentAvatarInputRef}
-                  type="file"
-                  accept="image/*"
-                  onChange={handleAgentAvatarUpload}
-                  className="hidden"
-                />
               </div>
             </div>
 
