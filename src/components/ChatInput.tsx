@@ -1,52 +1,324 @@
-import { MicrophoneIcon, PaperAirplaneIcon, PaperClipIcon } from '@heroicons/react/24/outline';
-import { FormEvent } from 'react';
+import {
+  MicrophoneIcon,
+  PaperAirplaneIcon,
+  PaperClipIcon,
+  XMarkIcon
+} from '@heroicons/react/24/outline';
+import {
+  ChangeEvent,
+  FormEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from 'react';
 
-interface ChatInputProps {
-  onSendMessage: (value: string) => void;
+export interface ChatInputSubmission {
+  text: string;
+  files: File[];
+  audio?: {
+    blob: Blob;
+    durationSeconds?: number | null;
+  };
 }
 
-export function ChatInput({ onSendMessage }: ChatInputProps) {
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const formData = new FormData(form);
-    const message = String(formData.get('message') ?? '').trim();
+interface ChatInputProps {
+  onSendMessage: (payload: ChatInputSubmission) => Promise<void> | void;
+  pushToTalkEnabled?: boolean;
+}
 
-    if (message) {
-      onSendMessage(message);
-      form.reset();
+const formatFileSize = (size: number) => {
+  if (size >= 1024 * 1024) {
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  if (size >= 1024) {
+    return `${Math.round(size / 1024)} KB`;
+  }
+
+  return `${size} B`;
+};
+
+export function ChatInput({ onSendMessage, pushToTalkEnabled = true }: ChatInputProps) {
+  const [message, setMessage] = useState('');
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const [isRecording, setIsRecording] = useState(false);
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [audioDuration, setAudioDuration] = useState<number | null>(null);
+  const recordingStartedAtRef = useRef<number | null>(null);
+  const [recordingError, setRecordingError] = useState<string | null>(null);
+
+  const canSubmit = useMemo(() => {
+    return Boolean(message.trim() || selectedFiles.length > 0 || audioBlob);
+  }, [message, selectedFiles, audioBlob]);
+
+  useEffect(() => {
+    return () => {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop();
+      }
+
+      if (audioUrl) {
+        URL.revokeObjectURL(audioUrl);
+      }
+    };
+  }, [audioUrl]);
+
+  const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
+    if (!files.length) {
+      return;
+    }
+
+    setSelectedFiles((prev) => [...prev, ...files]);
+    event.target.value = '';
+  };
+
+  const handleRemoveFile = (index: number) => {
+    setSelectedFiles((prev) => prev.filter((_, fileIndex) => fileIndex !== index));
+  };
+
+  const resetAudioState = () => {
+    if (audioUrl) {
+      URL.revokeObjectURL(audioUrl);
+    }
+
+    setAudioBlob(null);
+    setAudioUrl(null);
+    setAudioDuration(null);
+    recordingStartedAtRef.current = null;
+  };
+
+  const stopRecording = () => {
+    if (!mediaRecorderRef.current) {
+      return;
+    }
+
+    try {
+      if (mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop();
+      }
+    } catch (error) {
+      console.error('Failed to stop recording', error);
+    }
+
+    setIsRecording(false);
+  };
+
+  const handleRecordingStop = () => {
+    const chunks = audioChunksRef.current;
+    const blob = chunks.length ? new Blob(chunks, { type: 'audio/webm' }) : null;
+    audioChunksRef.current = [];
+
+    if (blob) {
+      resetAudioState();
+      const objectUrl = URL.createObjectURL(blob);
+      setAudioBlob(blob);
+      setAudioUrl(objectUrl);
+      if (recordingStartedAtRef.current) {
+        const durationInSeconds = (Date.now() - recordingStartedAtRef.current) / 1000;
+        setAudioDuration(Number(durationInSeconds.toFixed(1)));
+      }
+    }
+  };
+
+  const startRecording = async () => {
+    if (!pushToTalkEnabled) {
+      setRecordingError('Die Audioaufnahme ist in den Einstellungen deaktiviert.');
+      return;
+    }
+
+    if (isRecording) {
+      return;
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setRecordingError('Dein Browser unterstützt keine Audioaufnahme.');
+      return;
+    }
+
+    try {
+      setRecordingError(null);
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+      recordingStartedAtRef.current = Date.now();
+
+      mediaRecorder.addEventListener('dataavailable', (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      });
+
+      mediaRecorder.addEventListener('stop', () => {
+        stream.getTracks().forEach((track) => track.stop());
+        handleRecordingStop();
+      });
+
+      mediaRecorder.start();
+      setIsRecording(true);
+    } catch (error) {
+      console.error('Audio recording failed', error);
+      setRecordingError('Audioaufnahme konnte nicht gestartet werden. Prüfe die Mikrofonrechte.');
+    }
+  };
+
+  const toggleRecording = () => {
+    if (isRecording) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  };
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!canSubmit || isSubmitting) {
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      await Promise.resolve(
+        onSendMessage({
+          text: message.trim(),
+          files: selectedFiles,
+          audio: audioBlob
+            ? {
+                blob: audioBlob,
+                durationSeconds: audioDuration
+              }
+            : undefined
+        })
+      );
+
+      setMessage('');
+      setSelectedFiles([]);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+
+      resetAudioState();
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   return (
     <form
       onSubmit={handleSubmit}
-      className="relative mt-6 rounded-3xl border border-white/10 bg-[#1b1b1b]/80 backdrop-blur-2xl p-2 shadow-[0_0_40px_rgba(250,207,57,0.12)]"
+      className="relative mt-6 rounded-3xl border border-white/10 bg-[#1b1b1b]/80 backdrop-blur-2xl p-4 shadow-[0_0_40px_rgba(250,207,57,0.12)]"
     >
-      <div className="flex items-center gap-2">
+      {(selectedFiles.length > 0 || audioBlob || recordingError) && (
+        <div className="mb-4 space-y-3">
+          {selectedFiles.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {selectedFiles.map((file, index) => (
+                <span
+                  key={`${file.name}-${index}`}
+                  className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/10 px-3 py-2 text-xs text-white/80"
+                >
+                  <PaperClipIcon className="h-4 w-4" />
+                  <span className="max-w-[160px] truncate" title={file.name}>
+                    {file.name}
+                  </span>
+                  <span className="text-white/40">{formatFileSize(file.size)}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveFile(index)}
+                    className="rounded-full bg-white/10 p-1 text-white/50 transition hover:bg-white/20 hover:text-white"
+                    aria-label={`${file.name} entfernen`}
+                  >
+                    <XMarkIcon className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+
+          {audioBlob && (
+            <div className="space-y-2 rounded-2xl border border-white/10 bg-white/5 p-3 text-xs text-white/80">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <MicrophoneIcon className="h-4 w-4 text-brand-gold" />
+                  <span>Aufgenommene Audionachricht</span>
+                  {audioDuration ? <span className="text-white/40">{audioDuration}s</span> : null}
+                </div>
+                <button
+                  type="button"
+                  onClick={resetAudioState}
+                  className="inline-flex items-center gap-1 rounded-full border border-white/10 px-2 py-1 text-[10px] uppercase tracking-[0.2em] text-white/60 transition hover:bg-white/10"
+                >
+                  Entfernen
+                </button>
+              </div>
+              {audioUrl ? (
+                <audio controls src={audioUrl} className="mt-1 w-full" />
+              ) : null}
+            </div>
+          )}
+
+          {recordingError && (
+            <div className="rounded-2xl border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
+              {recordingError}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center gap-3">
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          onChange={handleFileChange}
+          className="hidden"
+        />
         <button
           type="button"
+          onClick={() => fileInputRef.current?.click()}
           className="group rounded-2xl bg-white/5 p-3 text-white/70 transition hover:bg-white/10"
+          title="Dateien anhängen"
         >
           <PaperClipIcon className="h-5 w-5 group-hover:text-white" />
         </button>
         <input
           name="message"
+          value={message}
+          onChange={(event) => setMessage(event.target.value)}
           placeholder="Nachricht an den Agent eingeben..."
-          className="flex-1 bg-transparent px-2 text-sm text-white placeholder:text-white/30 focus:outline-none"
+          className="min-w-0 flex-1 bg-transparent px-2 text-sm text-white placeholder:text-white/30 focus:outline-none"
         />
         <button
           type="button"
-          className="group rounded-2xl bg-white/5 p-3 text-white/70 transition hover:bg-white/10"
-          title="Audio Nachricht senden"
+          onClick={toggleRecording}
+          disabled={!pushToTalkEnabled && !isRecording}
+          className={`group rounded-2xl p-3 transition ${
+            isRecording
+              ? 'bg-rose-500/20 text-rose-100'
+              : pushToTalkEnabled
+              ? 'bg-white/5 text-white/70 hover:bg-white/10'
+              : 'cursor-not-allowed bg-white/5 text-white/30'
+          }`}
+          title={pushToTalkEnabled ? 'Audio Nachricht aufnehmen' : 'Audioaufnahme deaktiviert'}
         >
-          <MicrophoneIcon className="h-5 w-5 group-hover:text-brand-gold" />
+          <MicrophoneIcon className={`h-5 w-5 ${isRecording ? 'animate-pulse' : ''}`} />
         </button>
         <button
           type="submit"
-          className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-brand-gold via-brand-deep to-brand-gold px-5 py-3 text-sm font-semibold text-surface-base shadow-glow transition hover:opacity-90"
+          disabled={!canSubmit || isSubmitting}
+          className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-brand-gold via-brand-deep to-brand-gold px-5 py-3 text-sm font-semibold text-surface-base shadow-glow transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          Senden
+          {isSubmitting ? 'Sendet…' : 'Senden'}
           <PaperAirplaneIcon className="h-5 w-5" />
         </button>
       </div>

@@ -1,8 +1,19 @@
+export type ChatAttachment = {
+  id: string;
+  name: string;
+  size: number;
+  type: string;
+  url: string;
+  kind: 'file' | 'audio';
+  durationSeconds?: number;
+};
+
 export type ChatMessage = {
   id: string;
   author: 'agent' | 'user';
   content: string;
   timestamp: string;
+  attachments?: ChatAttachment[];
 };
 
 export type Chat = {
@@ -18,7 +29,6 @@ export const sampleChats: Chat[] = [
   {
     id: '1',
     name: 'Onboarding Workflow',
-    folder: 'Customer Success',
     lastUpdated: 'Heute, 09:24',
     preview: 'Ich habe den Flow angepasst und möchte wissen, ...',
     messages: [
@@ -41,7 +51,6 @@ export const sampleChats: Chat[] = [
   {
     id: '2',
     name: 'Marketing Automation',
-    folder: 'Kampagnen',
     lastUpdated: 'Gestern, 16:02',
     preview: 'Wir wollen die Kampagne für Leads wieder aktivieren.',
     messages: [
@@ -63,7 +72,6 @@ export const sampleChats: Chat[] = [
   {
     id: '3',
     name: 'Voice Interface Ideen',
-    folder: 'F&E',
     lastUpdated: 'Dienstag, 11:17',
     preview: 'Welche Audio-Kommandos können wir unterstützen?',
     messages: [
@@ -84,5 +92,3 @@ export const sampleChats: Chat[] = [
     ]
   }
 ];
-
-export const chatFolders = ['Alle Chats', 'Customer Success', 'Kampagnen', 'F&E'];
