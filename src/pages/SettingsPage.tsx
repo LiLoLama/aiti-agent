@@ -1,3 +1,4 @@
+import { useRef, useState, type ChangeEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeftIcon, CloudArrowUpIcon, PhotoIcon } from '@heroicons/react/24/outline';
 
@@ -6,6 +7,52 @@ import userAvatar from '../assets/default-user.svg';
 
 export function SettingsPage() {
   const navigate = useNavigate();
+  const [chatBackground, setChatBackground] = useState<string | null>(() => {
+    if (typeof window === 'undefined') {
+      return null;
+    }
+
+    return window.localStorage.getItem('chatBackgroundImage');
+  });
+  const backgroundInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleBackgroundUpload = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : null;
+      setChatBackground(result);
+
+      if (typeof window !== 'undefined') {
+        if (result) {
+          window.localStorage.setItem('chatBackgroundImage', result);
+        } else {
+          window.localStorage.removeItem('chatBackgroundImage');
+        }
+
+        window.dispatchEvent(new Event('chat-background-change'));
+      }
+    };
+
+    reader.readAsDataURL(file);
+  };
+
+  const handleBackgroundReset = () => {
+    setChatBackground(null);
+
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem('chatBackgroundImage');
+      window.dispatchEvent(new Event('chat-background-change'));
+    }
+
+    if (backgroundInputRef.current) {
+      backgroundInputRef.current.value = '';
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[#101010] text-white">
@@ -151,6 +198,45 @@ export function SettingsPage() {
                         title={color}
                       />
                     ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs uppercase tracking-[0.3em] text-white/40">Chat Hintergrund</label>
+                  <div className="mt-3 space-y-3">
+                    <div className="flex flex-wrap gap-3">
+                      <button
+                        onClick={() => backgroundInputRef.current?.click()}
+                        className="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-xs font-semibold text-white/70 transition hover:bg-white/10"
+                      >
+                        <PhotoIcon className="h-4 w-4" /> Hintergrund wählen
+                      </button>
+                      {chatBackground && (
+                        <button
+                          onClick={handleBackgroundReset}
+                          className="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-xs font-semibold text-white/60 transition hover:bg-white/10"
+                        >
+                          Zurücksetzen
+                        </button>
+                      )}
+                    </div>
+                    <input
+                      ref={backgroundInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleBackgroundUpload}
+                      className="hidden"
+                    />
+                    {chatBackground ? (
+                      <div className="overflow-hidden rounded-2xl border border-white/10 bg-black/30">
+                        <img
+                          src={chatBackground}
+                          alt="Aktuelles Chat Hintergrundbild"
+                          className="h-40 w-full object-cover"
+                        />
+                      </div>
+                    ) : (
+                      <p className="text-xs text-white/40">Noch kein Hintergrund festgelegt.</p>
+                    )}
                   </div>
                 </div>
                 <div>

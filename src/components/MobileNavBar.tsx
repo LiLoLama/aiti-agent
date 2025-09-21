@@ -7,15 +7,15 @@ import {
 interface MobileNavBarProps {
   onNewChat: () => void;
   onOpenSettings: () => void;
-  onToggleDrawer: () => void;
+  onToggleOverview: () => void;
 }
 
-export function MobileNavBar({ onNewChat, onOpenSettings, onToggleDrawer }: MobileNavBarProps) {
+export function MobileNavBar({ onNewChat, onOpenSettings, onToggleOverview }: MobileNavBarProps) {
   return (
     <nav className="lg:hidden fixed inset-x-0 bottom-0 z-30 border-t border-white/10 bg-[#141414]/95 backdrop-blur-xl">
       <div className="mx-auto flex max-w-3xl items-center justify-around px-6 py-3 text-white/70">
         <button
-          onClick={onToggleDrawer}
+          onClick={onToggleOverview}
           className="flex flex-col items-center text-xs font-medium gap-1"
         >
           <Squares2X2Icon className="h-6 w-6" />
