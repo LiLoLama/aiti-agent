@@ -11,6 +11,7 @@ import {
   FolderArrowDownIcon
 } from '@heroicons/react/24/outline';
 import clsx from 'clsx';
+import aitiLogo from '../assets/aiti-logo.svg';
 
 interface ChatOverviewPanelProps {
   chats: Chat[];
@@ -97,7 +98,10 @@ export function ChatOverviewPanel({
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-xs uppercase tracking-[0.28em] text-white/40">Workspace</p>
-            <h3 className="mt-1 text-lg font-semibold text-white">AI Training Studio</h3>
+            <div className="mt-1 flex items-center gap-3">
+              <img src={aitiLogo} alt="AITI Explorer Agent" className="h-9 w-9" />
+              <h3 className="text-lg font-semibold text-white">AITI Explorer Agent</h3>
+            </div>
             <p className="mt-3 text-xs text-white/50">
               Organisiere deine Chats, Ordner und Personalisierungen an einem Ort.
             </p>

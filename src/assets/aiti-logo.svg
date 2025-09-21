@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="aitiGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#f8d36f" />
+      <stop offset="50%" stop-color="#f0b93b" />
+      <stop offset="100%" stop-color="#d68a1f" />
+    </linearGradient>
+  </defs>
+  <path
+    fill="url(#aitiGradient)"
+    d="M64 6c-23.2 0-42 18.8-42 42v12.2c0 10.3 5.1 19.9 13.6 25.8l2.9 2v12c0 8.9 7.2 16.1 16.1 16.1h2.4c1.9 0 3.4-1.5 3.4-3.4V94c0-1.9-1.5-3.4-3.4-3.4H60c-5 0-9-4-9-9V66c0-1.9-1.5-3.4-3.4-3.4-5.8 0-10.6-4.7-10.6-10.6V48c0-15 12.2-27.2 27.2-27.2 15 0 27.2 12.2 27.2 27.2v4c0 5.8-4.7 10.6-10.6 10.6-1.9 0-3.4 1.5-3.4 3.4v15.6c0 5-4 9-9 9h-3.7c-1.9 0-3.4 1.5-3.4 3.4v15.7c0 1.9 1.5 3.4 3.4 3.4h2.4c8.9 0 16.1-7.2 16.1-16.1v-12l2.9-2c8.5-6 13.6-15.6 13.6-25.8V48c0-23.2-18.8-42-42-42z"
+  />
+  <g stroke="#fff8e6" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M64 22v20" />
+    <path d="M44 36h12" />
+    <path d="M72 42h12" />
+    <path d="M52 60v10" />
+    <path d="M76 60v12" />
+    <path d="M64 74v30" />
+  </g>
+</svg>
