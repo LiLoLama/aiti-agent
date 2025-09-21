@@ -2,34 +2,100 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChatHeader } from '../components/ChatHeader';
 import { ChatTimeline } from '../components/ChatTimeline';
-import { ChatInput } from '../components/ChatInput';
+import { ChatInput, ChatInputSubmission } from '../components/ChatInput';
 import { MobileNavBar } from '../components/MobileNavBar';
 import { ChatOverviewPanel } from '../components/ChatOverviewPanel';
-import { sampleChats, Chat } from '../data/sampleChats';
+import { sampleChats, Chat, ChatAttachment, ChatMessage } from '../data/sampleChats';
 import { ChevronDoubleLeftIcon, ChevronDoubleRightIcon } from '@heroicons/react/24/outline';
 
 import agentAvatar from '../assets/agent-avatar.png';
 import userAvatar from '../assets/default-user.svg';
+import { AgentSettings } from '../types/settings';
+import {
+  loadAgentSettings,
+  loadChats,
+  loadCustomFolders,
+  saveChats,
+  saveCustomFolders
+} from '../utils/storage';
+import { sendWebhookMessage } from '../utils/webhook';
+
+const formatTimestamp = (date: Date) =>
+  date.toLocaleTimeString('de-DE', {
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+
+const blobToDataUrl = (blob: Blob): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+      } else {
+        reject(new Error('Datei konnte nicht gelesen werden.'));
+      }
+    };
+    reader.onerror = () => reject(reader.error ?? new Error('Unbekannter Fehler beim Lesen der Datei.'));
+    reader.readAsDataURL(blob);
+  });
+
+const toPreview = (value: string) =>
+  value.length > 140 ? `${value.slice(0, 137)}…` : value;
 
 export function ChatPage() {
   const navigate = useNavigate();
-  const [chats, setChats] = useState<Chat[]>(sampleChats);
-  const [activeChatId, setActiveChatId] = useState<string>(sampleChats[0]?.id ?? '');
+  const [settings, setSettings] = useState<AgentSettings>(() => loadAgentSettings());
+  const [chats, setChats] = useState<Chat[]>(() => loadChats(sampleChats));
+  const [activeChatId, setActiveChatId] = useState<string>(() => {
+    const initialChats = loadChats(sampleChats);
+    return initialChats[0]?.id ?? '';
+  });
   const [isWorkspaceCollapsed, setWorkspaceCollapsed] = useState(false);
   const [isMobileWorkspaceOpen, setMobileWorkspaceOpen] = useState(false);
-  const [customFolders, setCustomFolders] = useState<string[]>([]);
+  const [customFolders, setCustomFolders] = useState<string[]>(() => loadCustomFolders());
   const [chatBackground, setChatBackground] = useState<string | null>(() => {
     if (typeof window === 'undefined') {
-      return null;
+      return settings.chatBackgroundImage ?? null;
     }
 
-    return window.localStorage.getItem('chatBackgroundImage');
+    return (
+      window.localStorage.getItem('chatBackgroundImage') ?? settings.chatBackgroundImage ?? null
+    );
   });
 
   const activeChat = useMemo(
     () => chats.find((chat) => chat.id === activeChatId) ?? chats[0],
     [chats, activeChatId]
   );
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const handleSettingsUpdate = (event: WindowEventMap['aiti-settings-update']) => {
+      setSettings(event.detail);
+    };
+
+    window.addEventListener('aiti-settings-update', handleSettingsUpdate);
+
+    return () => {
+      window.removeEventListener('aiti-settings-update', handleSettingsUpdate);
+    };
+  }, []);
+
+  useEffect(() => {
+    setChatBackground(settings.chatBackgroundImage ?? null);
+  }, [settings.chatBackgroundImage]);
+
+  useEffect(() => {
+    saveChats(chats);
+  }, [chats]);
+
+  useEffect(() => {
+    saveCustomFolders(customFolders);
+  }, [customFolders]);
 
   useEffect(() => {
     const updateBackgroundFromStorage = () => {
@@ -189,6 +255,139 @@ export function ChatPage() {
     });
   };
 
+  const handleSendMessage = async (submission: ChatInputSubmission) => {
+    const currentChat = activeChat;
+    if (!currentChat) {
+      return;
+    }
+
+    const now = new Date();
+    const files = submission.files ?? [];
+
+    const fileAttachments: ChatAttachment[] = await Promise.all(
+      files.map(async (file) => ({
+        id: crypto.randomUUID(),
+        name: file.name,
+        size: file.size,
+        type: file.type,
+        url: await blobToDataUrl(file),
+        kind: 'file' as const
+      }))
+    );
+
+    const audioAttachments: ChatAttachment[] = submission.audio
+      ? [
+          {
+            id: crypto.randomUUID(),
+            name: `Audio-${formatTimestamp(now)}`,
+            size: submission.audio.blob.size,
+            type: submission.audio.blob.type || 'audio/webm',
+            url: await blobToDataUrl(submission.audio.blob),
+            kind: 'audio' as const,
+            durationSeconds: submission.audio.durationSeconds ?? undefined
+          }
+        ]
+      : [];
+
+    const attachments = [...fileAttachments, ...audioAttachments];
+
+    const trimmedText = submission.text?.trim() ?? '';
+
+    const messageContent = trimmedText
+      ? trimmedText
+      : audioAttachments.length
+      ? 'Audio Nachricht gesendet.'
+      : attachments.length
+      ? 'Datei gesendet.'
+      : '';
+
+    const userMessage: ChatMessage = {
+      id: crypto.randomUUID(),
+      author: 'user',
+      content: messageContent,
+      timestamp: formatTimestamp(now),
+      attachments: attachments.length ? attachments : undefined
+    };
+
+    const updatedPreview = trimmedText
+      ? trimmedText
+      : audioAttachments.length
+      ? 'Audio Nachricht'
+      : attachments[0]?.name ?? 'Neue Nachricht';
+
+    const updatedChat: Chat = {
+      ...currentChat,
+      messages: [...currentChat.messages, userMessage],
+      lastUpdated: formatTimestamp(now),
+      preview: toPreview(updatedPreview)
+    };
+
+    setChats((prev) =>
+      prev.map((chat) => (chat.id === updatedChat.id ? updatedChat : chat))
+    );
+
+    try {
+      const webhookResponse = await sendWebhookMessage(settings, {
+        chatId: updatedChat.id,
+        message: trimmedText,
+        messageId: userMessage.id,
+        history: updatedChat.messages,
+        attachments: files,
+        audio: submission.audio
+          ? {
+              blob: submission.audio.blob,
+              durationSeconds: submission.audio.durationSeconds ?? undefined
+            }
+          : undefined
+      });
+
+      const responseDate = new Date();
+      const agentMessage: ChatMessage = {
+        id: crypto.randomUUID(),
+        author: 'agent',
+        content: webhookResponse.message,
+        timestamp: formatTimestamp(responseDate)
+      };
+
+      setChats((prev) =>
+        prev.map((chat) =>
+          chat.id === updatedChat.id
+            ? {
+                ...chat,
+                messages: [...chat.messages, agentMessage],
+                preview: toPreview(agentMessage.content),
+                lastUpdated: formatTimestamp(responseDate)
+              }
+            : chat
+        )
+      );
+    } catch (error) {
+      const errorDate = new Date();
+      const agentErrorMessage: ChatMessage = {
+        id: crypto.randomUUID(),
+        author: 'agent',
+        content:
+          error instanceof Error
+            ? `Webhook Fehler: ${error.message}`
+            : 'Unbekannter Fehler beim Webhook-Aufruf.',
+        timestamp: formatTimestamp(errorDate)
+      };
+
+      setChats((prev) =>
+        prev.map((chat) =>
+          chat.id === updatedChat.id
+            ? {
+                ...chat,
+                messages: [...chat.messages, agentErrorMessage],
+                preview: toPreview(agentErrorMessage.content),
+                lastUpdated: formatTimestamp(errorDate)
+              }
+            : chat
+        )
+      );
+    }
+  };
+
   return (
     <div className="relative flex min-h-screen flex-col bg-[#111111] text-white">
       <MobileNavBar
@@ -249,7 +448,10 @@ export function ChatPage() {
           )}
 
           <div className="px-4 pb-28 pt-2 md:px-8 md:pb-10">
-            <ChatInput onSendMessage={() => undefined} />
+            <ChatInput
+              onSendMessage={handleSendMessage}
+              pushToTalkEnabled={settings.pushToTalkEnabled}
+            />
             <p className="mt-3 text-xs text-white/30">
               Audio- und Textnachrichten werden direkt an deinen n8n-Webhook gesendet und als strukturierte Antwort im Stream angezeigt.
             </p>
