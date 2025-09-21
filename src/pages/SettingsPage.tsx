@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeftIcon, CloudArrowUpIcon, PhotoIcon } from '@heroicons/react/24/outline';
+import clsx from 'clsx';
 
 import agentAvatar from '../assets/agent-avatar.png';
 import userAvatar from '../assets/default-user.svg';
@@ -18,7 +19,12 @@ export function SettingsPage() {
     return window.localStorage.getItem('chatBackgroundImage') ?? settings.chatBackgroundImage ?? null;
   });
   const backgroundInputRef = useRef<HTMLInputElement | null>(null);
+  const profileAvatarInputRef = useRef<HTMLInputElement | null>(null);
+  const agentAvatarInputRef = useRef<HTMLInputElement | null>(null);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
+
+  const profileAvatarPreview = settings.profileAvatarImage ?? userAvatar;
+  const agentAvatarPreview = settings.agentAvatarImage ?? agentAvatar;
 
   const updateSetting = <Key extends keyof AgentSettings>(
     key: Key,
@@ -67,6 +73,58 @@ export function SettingsPage() {
 
     if (backgroundInputRef.current) {
       backgroundInputRef.current.value = '';
+    }
+  };
+
+  const handleProfileAvatarUpload = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : null;
+      updateSetting('profileAvatarImage', result);
+
+      if (profileAvatarInputRef.current) {
+        profileAvatarInputRef.current.value = '';
+      }
+    };
+
+    reader.readAsDataURL(file);
+  };
+
+  const handleProfileAvatarReset = () => {
+    updateSetting('profileAvatarImage', null);
+    if (profileAvatarInputRef.current) {
+      profileAvatarInputRef.current.value = '';
+    }
+  };
+
+  const handleAgentAvatarUpload = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : null;
+      updateSetting('agentAvatarImage', result);
+
+      if (agentAvatarInputRef.current) {
+        agentAvatarInputRef.current.value = '';
+      }
+    };
+
+    reader.readAsDataURL(file);
+  };
+
+  const handleAgentAvatarReset = () => {
+    updateSetting('agentAvatarImage', null);
+    if (agentAvatarInputRef.current) {
+      agentAvatarInputRef.current.value = '';
     }
   };
 
@@ -146,14 +204,31 @@ export function SettingsPage() {
                 Richte deinen persönlichen Workspace ein. Dein Avatar erscheint in jeder Unterhaltung sowie in zukünftigen mobilen Apps.
               </p>
               <div className="mt-6 flex flex-col gap-6 md:flex-row md:items-center">
-                <div className="relative h-24 w-24 overflow-hidden rounded-3xl border border-white/10 shadow-lg">
-                  <img src={userAvatar} alt="User Avatar" className="h-full w-full object-cover" />
+                <div className="flex flex-col items-center gap-3">
+                  <div className="relative h-24 w-24 overflow-hidden rounded-3xl border border-white/10 shadow-lg">
+                    <img src={profileAvatarPreview} alt="User Avatar" className="h-full w-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => profileAvatarInputRef.current?.click()}
+                      className="absolute inset-x-3 bottom-3 inline-flex items-center justify-center rounded-full bg-gradient-to-r from-brand-gold via-brand-deep to-brand-gold px-3 py-1 text-[10px] font-semibold text-surface-base shadow-glow"
+                    >
+                      Neu hochladen
+                    </button>
+                  </div>
                   <button
                     type="button"
-                    className="absolute inset-x-4 bottom-3 inline-flex items-center justify-center rounded-full bg-gradient-to-r from-brand-gold via-brand-deep to-brand-gold px-3 py-1 text-[10px] font-semibold text-surface-base shadow-glow"
+                    onClick={handleProfileAvatarReset}
+                    className="text-xs text-white/50 hover:text-white/80"
                   >
-                    Neu hochladen
+                    Zurücksetzen
                   </button>
+                  <input
+                    ref={profileAvatarInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleProfileAvatarUpload}
+                    className="hidden"
+                  />
                 </div>
                 <div className="flex-1 space-y-4">
                   <div>
@@ -300,25 +375,47 @@ export function SettingsPage() {
 
           <aside className="lg:col-span-2 space-y-8">
             <div className="rounded-3xl border border-white/10 bg-[#161616]/70 p-8 shadow-2xl">
-              <h3 className="text-xl font-semibold text-white">Brand Assets</h3>
+              <h3 className="text-xl font-semibold text-white">Agent Profilbild</h3>
               <p className="mt-2 text-sm text-white/50">
-                Lade Logos, Farbsets und Medien hoch, die in deiner Chat-Oberfläche dargestellt werden sollen.
+                Passe das Profilbild deines Agents an. Es wird überall dort angezeigt, wo dein Agent sichtbar ist.
               </p>
-              <div className="mt-6 space-y-4">
-                <button
-                  type="button"
-                  className="flex w-full items-center justify-between rounded-2xl border border-dashed border-white/15 bg-white/5 px-5 py-4 text-sm text-white/60 hover:border-brand-gold/40 hover:text-white"
-                >
-                  <span className="inline-flex items-center gap-3">
-                    <CloudArrowUpIcon className="h-5 w-5 text-brand-gold" />
-                    Neues Asset hochladen
-                  </span>
-                  <PhotoIcon className="h-5 w-5 text-white/30" />
-                </button>
-                <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
-                  <img src={agentAvatar} alt="AITI Logo" className="w-full rounded-2xl border border-white/5 bg-[#0d0d0d] object-contain p-6" />
-                  <p className="mt-3 text-xs text-white/40">Aktuelles Agent Profilbild</p>
+              <div className="mt-6 flex flex-col gap-6 md:flex-row md:items-center">
+                <div className="relative h-24 w-24 overflow-hidden rounded-3xl border border-white/10 shadow-lg">
+                  <img src={agentAvatarPreview} alt="Agent Avatar" className="h-full w-full object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => agentAvatarInputRef.current?.click()}
+                    className="absolute inset-x-3 bottom-3 inline-flex items-center justify-center rounded-full bg-gradient-to-r from-brand-gold via-brand-deep to-brand-gold px-3 py-1 text-[10px] font-semibold text-surface-base shadow-glow"
+                  >
+                    Neu hochladen
+                  </button>
                 </div>
+                <div className="space-y-3 text-sm text-white/60">
+                  <p>Dieses Bild erscheint im Chatkopf sowie bei allen Antworten des Agents.</p>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => agentAvatarInputRef.current?.click()}
+                      className="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-xs font-semibold text-white/70 transition hover:bg-white/10"
+                    >
+                      <CloudArrowUpIcon className="h-4 w-4 text-brand-gold" /> Bild auswählen
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleAgentAvatarReset}
+                      className="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-xs font-semibold text-white/60 transition hover:bg-white/10"
+                    >
+                      <PhotoIcon className="h-4 w-4" /> Zurücksetzen
+                    </button>
+                  </div>
+                </div>
+                <input
+                  ref={agentAvatarInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleAgentAvatarUpload}
+                  className="hidden"
+                />
               </div>
             </div>
 
@@ -330,20 +427,26 @@ export function SettingsPage() {
               <div className="mt-6 space-y-4">
                 <div>
                   <label className="text-xs uppercase tracking-[0.3em] text-white/40">Farbschema</label>
-                  <div className="mt-3 flex gap-3">
-                    {['#212121', '#facf39', '#fbdb6b', '#f9c307', '#e6e6e6'].map((color) => (
+                  <div className="mt-3 grid gap-3 md:grid-cols-2">
+                    {[
+                      { value: 'dark' as const, label: 'Dark Mode', description: 'Optimiert für niedrige Umgebungsbeleuchtung.' },
+                      { value: 'light' as const, label: 'Light Mode', description: 'Helle Darstellung für klare Sichtbarkeit.' }
+                    ].map((option) => (
                       <button
                         type="button"
-                        key={color}
-                        style={{ background: color }}
-                        className="h-10 w-10 rounded-2xl border border-white/10 shadow-inner"
-                        aria-pressed={settings.colorScheme === color}
-                        onClick={(event) => {
-                          event.preventDefault();
-                          updateSetting('colorScheme', color);
-                        }}
-                        title={color}
-                      />
+                        key={option.value}
+                        onClick={() => updateSetting('colorScheme', option.value)}
+                        className={clsx(
+                          'rounded-2xl border px-4 py-3 text-left transition',
+                          settings.colorScheme === option.value
+                            ? 'border-brand-gold/60 bg-white/10 text-white shadow-glow'
+                            : 'border-white/10 bg-white/5 text-white/70 hover:bg-white/10'
+                        )}
+                        aria-pressed={settings.colorScheme === option.value}
+                      >
+                        <span className="block text-sm font-semibold text-white">{option.label}</span>
+                        <span className="mt-1 block text-xs text-white/50">{option.description}</span>
+                      </button>
                     ))}
                   </div>
                 </div>
@@ -387,10 +490,6 @@ export function SettingsPage() {
                       <p className="text-xs text-white/40">Noch kein Hintergrund festgelegt.</p>
                     )}
                   </div>
-                </div>
-                <div>
-                  <label className="text-xs uppercase tracking-[0.3em] text-white/40">Animationsgeschwindigkeit</label>
-                  <input type="range" className="mt-3 w-full accent-brand-gold" defaultValue={60} />
                 </div>
                 <div>
                   <label className="text-xs uppercase tracking-[0.3em] text-white/40">Audio Eingabe</label>

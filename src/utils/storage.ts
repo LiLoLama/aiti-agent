@@ -20,9 +20,16 @@ export function loadAgentSettings(): AgentSettings {
     }
 
     const parsed = JSON.parse(raw) as Partial<AgentSettings>;
+    const colorScheme = parsed.colorScheme === 'light' || parsed.colorScheme === 'dark'
+      ? parsed.colorScheme
+      : DEFAULT_AGENT_SETTINGS.colorScheme;
+
     return {
       ...DEFAULT_AGENT_SETTINGS,
       ...parsed,
+      colorScheme,
+      profileAvatarImage: parsed.profileAvatarImage ?? null,
+      agentAvatarImage: parsed.agentAvatarImage ?? null,
       chatBackgroundImage:
         parsed.chatBackgroundImage ?? window.localStorage.getItem('chatBackgroundImage')
     };

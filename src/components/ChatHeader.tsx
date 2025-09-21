@@ -1,4 +1,4 @@
-import { Bars3Icon, EllipsisHorizontalIcon } from '@heroicons/react/24/outline';
+import { Bars3Icon } from '@heroicons/react/24/outline';
 import { useMemo } from 'react';
 import clsx from 'clsx';
 
@@ -7,7 +7,6 @@ interface ChatHeaderProps {
   agentRole: string;
   agentStatus: 'online' | 'offline' | 'busy';
   onOpenOverview: () => void;
-  onOpenSettings: () => void;
   agentAvatar: string;
 }
 
@@ -22,7 +21,6 @@ export function ChatHeader({
   agentRole,
   agentStatus,
   onOpenOverview,
-  onOpenSettings,
   agentAvatar
 }: ChatHeaderProps) {
   const statusColor = useMemo(() => {
@@ -58,13 +56,6 @@ export function ChatHeader({
           </div>
         </div>
       </div>
-      <button
-        onClick={onOpenSettings}
-        className="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-sm font-medium text-white/70 hover:bg-white/10"
-      >
-        <EllipsisHorizontalIcon className="h-5 w-5" />
-        Agent verwalten
-      </button>
     </header>
   );
 }

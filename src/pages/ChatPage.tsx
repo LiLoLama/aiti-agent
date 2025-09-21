@@ -54,6 +54,9 @@ export function ChatPage() {
   const [isWorkspaceCollapsed, setWorkspaceCollapsed] = useState(false);
   const [isMobileWorkspaceOpen, setMobileWorkspaceOpen] = useState(false);
   const [customFolders, setCustomFolders] = useState<string[]>(() => loadCustomFolders());
+  const [folderSelectionChatId, setFolderSelectionChatId] = useState<string | null>(null);
+  const [selectedExistingFolder, setSelectedExistingFolder] = useState<string>('__none__');
+  const [newFolderName, setNewFolderName] = useState('');
   const [chatBackground, setChatBackground] = useState<string | null>(() => {
     if (typeof window === 'undefined') {
       return settings.chatBackgroundImage ?? null;
@@ -67,6 +70,29 @@ export function ChatPage() {
   const activeChat = useMemo(
     () => chats.find((chat) => chat.id === activeChatId) ?? chats[0],
     [chats, activeChatId]
+  );
+
+  const availableFolders = useMemo(() => {
+    return Array.from(
+      new Set(
+        [
+          ...customFolders,
+          ...chats
+            .map((chat) => chat.folder)
+            .filter((folder): folder is string => Boolean(folder))
+        ]
+      )
+    ).sort((a, b) => a.localeCompare(b));
+  }, [customFolders, chats]);
+
+  const agentAvatarSource = useMemo(
+    () => settings.agentAvatarImage ?? agentAvatar,
+    [settings.agentAvatarImage]
+  );
+
+  const userAvatarSource = useMemo(
+    () => settings.profileAvatarImage ?? userAvatar,
+    [settings.profileAvatarImage]
   );
 
   useEffect(() => {
@@ -220,39 +246,57 @@ export function ChatPage() {
       return;
     }
 
-    const existingFolders = Array.from(
-      new Set(
-        [...customFolders, ...chats.map((chat) => chat.folder).filter((folder): folder is string => Boolean(folder))]
-      )
-    ).sort((a, b) => a.localeCompare(b));
+    setFolderSelectionChatId(chatId);
+    setSelectedExistingFolder(chatToAssign.folder ?? '__none__');
+    setNewFolderName('');
+  };
 
-    const folderPromptMessage = existingFolders.length
-      ? `In welchen Ordner soll "${chatToAssign.name}" verschoben werden?\nVerfügbare Ordner: ${existingFolders.join(', ')}`
-      : `Wie soll der Ordner heißen, in den "${chatToAssign.name}" verschoben werden soll?`;
+  const handleCloseFolderSelection = () => {
+    setFolderSelectionChatId(null);
+    setSelectedExistingFolder('__none__');
+    setNewFolderName('');
+  };
 
-    const folderName = window.prompt(folderPromptMessage)?.trim();
-    if (!folderName) {
+  const handleConfirmFolderSelection = () => {
+    if (!folderSelectionChatId) {
       return;
     }
 
+    const trimmedNewFolder = newFolderName.trim();
+    const selectedFolderName =
+      selectedExistingFolder === '__none__' ? '' : selectedExistingFolder.trim();
+    const targetFolder = trimmedNewFolder || selectedFolderName;
+
     setChats((prev) =>
       prev.map((chat) =>
-        chat.id === chatId
+        chat.id === folderSelectionChatId
           ? {
               ...chat,
-              folder: folderName
+              folder: targetFolder || undefined
             }
           : chat
       )
     );
 
-    setCustomFolders((prev) => {
-      if (prev.includes(folderName)) {
-        return prev;
-      }
+    if (trimmedNewFolder) {
+      setCustomFolders((prev) => {
+        if (prev.includes(trimmedNewFolder)) {
+          return prev;
+        }
 
-      return [...prev, folderName];
-    });
+        return [...prev, trimmedNewFolder].sort((a, b) => a.localeCompare(b));
+      });
+    } else if (targetFolder) {
+      setCustomFolders((prev) => {
+        if (prev.includes(targetFolder)) {
+          return prev;
+        }
+
+        return [...prev, targetFolder].sort((a, b) => a.localeCompare(b));
+      });
+    }
+
+    handleCloseFolderSelection();
   };
 
   const handleSendMessage = async (submission: ChatInputSubmission) => {
@@ -420,8 +464,7 @@ export function ChatPage() {
             agentRole="N8n Workflow Companion"
             agentStatus="online"
             onOpenOverview={() => setMobileWorkspaceOpen(true)}
-            onOpenSettings={() => navigate('/settings')}
-            agentAvatar={agentAvatar}
+            agentAvatar={agentAvatarSource}
           />
 
           <div className="hidden px-4 pt-4 md:px-6 lg:flex">
@@ -441,8 +484,8 @@ export function ChatPage() {
           {activeChat && (
             <ChatTimeline
               chat={activeChat}
-              agentAvatar={agentAvatar}
-              userAvatar={userAvatar}
+              agentAvatar={agentAvatarSource}
+              userAvatar={userAvatarSource}
               backgroundImage={chatBackground ?? undefined}
             />
           )}
@@ -457,7 +500,89 @@ export function ChatPage() {
             </p>
           </div>
         </main>
-      </div>
+    </div>
+
+      {folderSelectionChatId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-10">
+          <div className="w-full max-w-md space-y-6 rounded-3xl border border-white/10 bg-[#161616]/95 p-6 text-white shadow-glow">
+            <div>
+              <h3 className="text-lg font-semibold">Chat in Ordner verschieben</h3>
+              <p className="mt-2 text-sm text-white/60">
+                Wähle einen vorhandenen Ordner aus oder lege direkt einen neuen an.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              <fieldset className="space-y-2">
+                <legend className="text-xs uppercase tracking-[0.3em] text-white/40">
+                  Verfügbare Ordner
+                </legend>
+                <label className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/70">
+                  <span>Keinem Ordner zuweisen</span>
+                  <input
+                    type="radio"
+                    className="accent-brand-gold"
+                    checked={selectedExistingFolder === '__none__'}
+                    onChange={() => setSelectedExistingFolder('__none__')}
+                  />
+                </label>
+                {availableFolders.length === 0 ? (
+                  <p className="rounded-2xl border border-dashed border-white/10 bg-white/5 px-4 py-3 text-xs text-white/50">
+                    Noch keine Ordner vorhanden.
+                  </p>
+                ) : (
+                  availableFolders.map((folder) => (
+                    <label
+                      key={folder}
+                      className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/70 hover:bg-white/10"
+                    >
+                      <span>{folder}</span>
+                      <input
+                        type="radio"
+                        className="accent-brand-gold"
+                        checked={selectedExistingFolder === folder}
+                        onChange={() => setSelectedExistingFolder(folder)}
+                      />
+                    </label>
+                  ))
+                )}
+              </fieldset>
+
+              <div>
+                <label className="text-xs uppercase tracking-[0.3em] text-white/40">
+                  Neuen Ordner erstellen
+                </label>
+                <input
+                  className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-white/40 focus:border-brand-gold/60 focus:outline-none"
+                  placeholder="Neuer Ordnername"
+                  value={newFolderName}
+                  onChange={(event) => setNewFolderName(event.target.value)}
+                />
+                <p className="mt-2 text-xs text-white/40">
+                  Wenn du hier einen Namen eingibst, wird automatisch ein neuer Ordner angelegt.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={handleCloseFolderSelection}
+                className="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-sm text-white/70 hover:bg-white/10"
+              >
+                Abbrechen
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmFolderSelection}
+                className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-brand-gold via-brand-deep to-brand-gold px-4 py-2 text-sm font-semibold text-surface-base shadow-glow hover:opacity-90"
+              >
+                Speichern
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
