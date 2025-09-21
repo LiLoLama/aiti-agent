@@ -7,7 +7,8 @@ import {
   ChevronRightIcon,
   XMarkIcon,
   PlusIcon,
-  Cog6ToothIcon
+  Cog6ToothIcon,
+  FolderArrowDownIcon
 } from '@heroicons/react/24/outline';
 import clsx from 'clsx';
 
@@ -15,15 +16,14 @@ interface ChatOverviewPanelProps {
   chats: Chat[];
   activeChatId: string;
   onSelectChat: (chatId: string) => void;
-  isCollapsed: boolean;
   isMobileOpen: boolean;
   onCloseMobile: () => void;
-  onToggleCollapse: () => void;
   onNewChat: () => void;
   onCreateFolder: () => void;
   onRenameChat: (chatId: string) => void;
   onDeleteChat: (chatId: string) => void;
   customFolders: string[];
+  onAssignChatFolder: (chatId: string) => void;
   onOpenSettings: () => void;
 }
 
@@ -31,21 +31,23 @@ export function ChatOverviewPanel({
   chats,
   activeChatId,
   onSelectChat,
-  isCollapsed,
   isMobileOpen,
   onCloseMobile,
-  onToggleCollapse,
   onNewChat,
   onCreateFolder,
   onRenameChat,
   onDeleteChat,
   customFolders,
+  onAssignChatFolder,
   onOpenSettings
 }: ChatOverviewPanelProps) {
   const chatsByFolder = useMemo(() => {
     return chats.reduce<Record<string, Chat[]>>((acc, chat) => {
-      const folder = chat.folder ?? 'Ohne Ordner';
-      acc[folder] = acc[folder] ? [...acc[folder], chat] : [chat];
+      if (!chat.folder) {
+        return acc;
+      }
+
+      acc[chat.folder] = acc[chat.folder] ? [...acc[chat.folder], chat] : [chat];
       return acc;
     }, {});
   }, [chats]);
@@ -59,6 +61,11 @@ export function ChatOverviewPanel({
     return Array.from(folderSet).sort((a, b) => a.localeCompare(b));
   }, [chatsByFolder, customFolders]);
 
+  const unassignedChats = useMemo(
+    () => chats.filter((chat) => !chat.folder),
+    [chats]
+  );
+
   const [openFolders, setOpenFolders] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
@@ -68,8 +75,8 @@ export function ChatOverviewPanel({
         return acc;
       }, {});
 
-      const activeFolder = chats.find((chat) => chat.id === activeChatId)?.folder ?? 'Ohne Ordner';
-      if (activeChatId && activeFolder in nextState) {
+      const activeFolder = chats.find((chat) => chat.id === activeChatId)?.folder;
+      if (activeChatId && activeFolder && activeFolder in nextState) {
         nextState[activeFolder] = true;
       }
 
@@ -110,12 +117,6 @@ export function ChatOverviewPanel({
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={onToggleCollapse}
-              className="hidden lg:inline-flex items-center gap-2 rounded-full border border-white/10 px-3 py-2 text-xs font-semibold text-white/50 transition hover:bg-white/10"
-            >
-              Einklappen
-            </button>
             <button
               onClick={onCloseMobile}
               className="lg:hidden inline-flex items-center gap-2 rounded-full border border-white/10 p-2 text-white/60 hover:bg-white/10"
@@ -197,7 +198,62 @@ export function ChatOverviewPanel({
           );
         })}
 
-        {folders.length === 0 && (
+        <div className="space-y-3 rounded-2xl border border-white/5 bg-white/[0.03] p-4">
+          <div className="flex items-center justify-between text-xs uppercase tracking-[0.2em] text-white/50">
+            <span>Chats ohne Ordner</span>
+            <span className="text-[10px] tracking-[0.25em] text-white/30">{unassignedChats.length}</span>
+          </div>
+
+          {unassignedChats.length === 0 ? (
+            <p className="text-xs text-white/40">Noch keine Chats ohne Ordner.</p>
+          ) : (
+            <div className="space-y-3">
+              {unassignedChats.map((chat) => (
+                <div
+                  key={chat.id}
+                  className={clsx(
+                    'rounded-2xl border px-4 py-3 transition',
+                    chat.id === activeChatId
+                      ? 'border-brand-gold/50 bg-white/5 shadow-glow'
+                      : 'border-white/5 bg-white/[0.02] hover:bg-white/10'
+                  )}
+                >
+                  <button onClick={() => onSelectChat(chat.id)} className="w-full text-left">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-semibold text-white">{chat.name}</h4>
+                      <span className="text-[10px] uppercase tracking-[0.25em] text-white/40">
+                        {chat.lastUpdated}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-xs text-white/50 line-clamp-2">{chat.preview}</p>
+                  </button>
+                  <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                    <button
+                      onClick={() => onAssignChatFolder(chat.id)}
+                      className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-3 py-2 text-white/70 hover:bg-white/20"
+                    >
+                      <FolderArrowDownIcon className="h-4 w-4" /> In Ordner verschieben
+                    </button>
+                    <button
+                      onClick={() => onRenameChat(chat.id)}
+                      className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-3 py-2 text-white/70 hover:bg-white/20"
+                    >
+                      <PencilIcon className="h-4 w-4" /> Umbenennen
+                    </button>
+                    <button
+                      onClick={() => onDeleteChat(chat.id)}
+                      className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-3 py-2 text-rose-300 hover:bg-white/20"
+                    >
+                      <TrashIcon className="h-4 w-4" /> Löschen
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {folders.length === 0 && unassignedChats.length === 0 && (
           <p className="text-xs text-white/40">Noch keine Chats vorhanden.</p>
         )}
       </div>
@@ -215,11 +271,9 @@ export function ChatOverviewPanel({
 
   return (
     <>
-      {!isCollapsed && (
-        <aside className="hidden lg:flex w-96 flex-col border-r border-white/10 bg-[#161616]/90 backdrop-blur-xl">
-          {PanelContent}
-        </aside>
-      )}
+      <aside className="hidden lg:flex w-96 flex-col border-r border-white/10 bg-[#161616]/90 backdrop-blur-xl">
+        {PanelContent}
+      </aside>
 
       {isMobileOpen && (
         <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/80 px-4 pb-24 pt-10 lg:hidden">

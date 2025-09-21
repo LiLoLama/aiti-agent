@@ -6,6 +6,7 @@ import { ChatInput } from '../components/ChatInput';
 import { MobileNavBar } from '../components/MobileNavBar';
 import { ChatOverviewPanel } from '../components/ChatOverviewPanel';
 import { sampleChats, Chat } from '../data/sampleChats';
+import { ChevronDoubleLeftIcon, ChevronDoubleRightIcon } from '@heroicons/react/24/outline';
 
 import agentAvatar from '../assets/agent-avatar.png';
 import userAvatar from '../assets/default-user.svg';
@@ -53,7 +54,6 @@ export function ChatPage() {
     const newChat: Chat = {
       id: crypto.randomUUID(),
       name: 'Neuer Chat',
-      folder: 'Entwürfe',
       lastUpdated: timestamp.toLocaleTimeString('de-DE', {
         hour: '2-digit',
         minute: '2-digit'
@@ -148,6 +148,47 @@ export function ChatPage() {
     });
   };
 
+  const handleAssignChatFolder = (chatId: string) => {
+    const chatToAssign = chats.find((chat) => chat.id === chatId);
+    if (!chatToAssign) {
+      return;
+    }
+
+    const existingFolders = Array.from(
+      new Set(
+        [...customFolders, ...chats.map((chat) => chat.folder).filter((folder): folder is string => Boolean(folder))]
+      )
+    ).sort((a, b) => a.localeCompare(b));
+
+    const folderPromptMessage = existingFolders.length
+      ? `In welchen Ordner soll "${chatToAssign.name}" verschoben werden?\nVerfügbare Ordner: ${existingFolders.join(', ')}`
+      : `Wie soll der Ordner heißen, in den "${chatToAssign.name}" verschoben werden soll?`;
+
+    const folderName = window.prompt(folderPromptMessage)?.trim();
+    if (!folderName) {
+      return;
+    }
+
+    setChats((prev) =>
+      prev.map((chat) =>
+        chat.id === chatId
+          ? {
+              ...chat,
+              folder: folderName
+            }
+          : chat
+      )
+    );
+
+    setCustomFolders((prev) => {
+      if (prev.includes(folderName)) {
+        return prev;
+      }
+
+      return [...prev, folderName];
+    });
+  };
+
   return (
     <div className="relative flex min-h-screen flex-col bg-[#111111] text-white">
       <MobileNavBar
@@ -157,21 +198,22 @@ export function ChatPage() {
       />
 
       <div className="flex flex-1">
-        <ChatOverviewPanel
-          chats={chats}
-          activeChatId={activeChat?.id ?? ''}
-          onSelectChat={handleSelectChat}
-          isCollapsed={isWorkspaceCollapsed}
-          isMobileOpen={isMobileWorkspaceOpen}
-          onCloseMobile={() => setMobileWorkspaceOpen(false)}
-          onToggleCollapse={() => setWorkspaceCollapsed((prev) => !prev)}
-          onNewChat={handleNewChat}
-          onCreateFolder={handleCreateFolder}
-          onRenameChat={handleRenameChat}
-          onDeleteChat={handleDeleteChat}
-          customFolders={customFolders}
-          onOpenSettings={() => navigate('/settings')}
-        />
+        {(!isWorkspaceCollapsed || isMobileWorkspaceOpen) && (
+          <ChatOverviewPanel
+            chats={chats}
+            activeChatId={activeChat?.id ?? ''}
+            onSelectChat={handleSelectChat}
+            isMobileOpen={isMobileWorkspaceOpen}
+            onCloseMobile={() => setMobileWorkspaceOpen(false)}
+            onNewChat={handleNewChat}
+            onCreateFolder={handleCreateFolder}
+            onRenameChat={handleRenameChat}
+            onDeleteChat={handleDeleteChat}
+            customFolders={customFolders}
+            onAssignChatFolder={handleAssignChatFolder}
+            onOpenSettings={() => navigate('/settings')}
+          />
+        )}
 
         <main className="flex flex-1 flex-col">
           <ChatHeader
@@ -183,12 +225,17 @@ export function ChatPage() {
             agentAvatar={agentAvatar}
           />
 
-          <div className="hidden justify-end px-4 pt-4 md:px-8 lg:flex">
+          <div className="hidden px-4 pt-4 md:px-6 lg:flex">
             <button
               onClick={() => setWorkspaceCollapsed((prev) => !prev)}
-              className="rounded-full border border-white/10 px-4 py-2 text-xs font-medium uppercase tracking-[0.3em] text-white/60 transition hover:bg-white/10"
+              className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/[0.02] p-2 text-white/60 transition hover:bg-white/10"
+              aria-label={isWorkspaceCollapsed ? 'Workspace anzeigen' : 'Workspace ausblenden'}
             >
-              {isWorkspaceCollapsed ? 'Workspace anzeigen' : 'Workspace ausblenden'}
+              {isWorkspaceCollapsed ? (
+                <ChevronDoubleRightIcon className="h-5 w-5" />
+              ) : (
+                <ChevronDoubleLeftIcon className="h-5 w-5" />
+              )}
             </button>
           </div>
 
