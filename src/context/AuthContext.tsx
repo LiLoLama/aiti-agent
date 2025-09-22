@@ -34,6 +34,7 @@ interface AuthContextValue {
   toggleUserActive: (userId: string, nextActive: boolean) => void;
   addAgent: (agent: AgentDraft) => void;
   updateAgent: (agentId: string, updates: AgentUpdatePayload) => void;
+  removeAgent: (agentId: string) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -227,6 +228,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [currentUser, persistUsers, users]
   );
 
+  const removeAgent = useCallback(
+    (agentId: string) => {
+      if (!currentUser) {
+        return;
+      }
+
+      const nextUsers = users.map((user) =>
+        user.id === currentUser.id
+          ? {
+              ...user,
+              agents: user.agents.filter((agent) => agent.id !== agentId)
+            }
+          : user
+      );
+
+      persistUsers(nextUsers);
+    },
+    [currentUser, persistUsers, users]
+  );
+
   const toggleUserActive = useCallback(
     (userId: string, nextActive: boolean) => {
       const nextUsers = users.map((user) =>
@@ -257,7 +278,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       updateProfile,
       toggleUserActive,
       addAgent,
-      updateAgent
+      updateAgent,
+      removeAgent
     }),
     [
       addAgent,
@@ -266,6 +288,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       logout,
       register,
       toggleUserActive,
+      removeAgent,
       updateAgent,
       updateProfile,
       users
