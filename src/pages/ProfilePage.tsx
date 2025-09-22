@@ -467,9 +467,9 @@ export function ProfilePage() {
               </button>
             </header>
 
-            <form className="mt-10 space-y-8" onSubmit={handleSubmit}>
-              <div className="flex flex-col gap-6 md:flex-row">
-                <div className="flex flex-col items-center gap-3 text-center md:w-52">
+            <form className="mt-10 space-y-10" onSubmit={handleSubmit}>
+              <div className="grid gap-8 lg:grid-cols-[220px_minmax(0,1fr)] xl:grid-cols-[220px_minmax(0,1.15fr)_minmax(0,0.85fr)]">
+                <div className="flex flex-col items-center gap-3 text-center lg:items-start lg:text-left">
                   <div className="relative h-32 w-32 overflow-hidden rounded-3xl border border-white/10 bg-black/30">
                     <img src={displayedAvatar} alt={name} className="h-full w-full object-cover" />
                   </div>
@@ -493,36 +493,41 @@ export function ProfilePage() {
                   )}
                 </div>
 
-                <div className="flex-1 space-y-5">
-                  <div>
-                    <label className="text-xs font-medium uppercase tracking-[0.35em] text-white/40">Name</label>
-                    <input
-                      type="text"
-                      className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white focus:border-brand-gold focus:outline-none focus:ring-2 focus:ring-brand-gold/30"
-                      value={name}
-                      onChange={(event) => setName(event.target.value)}
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium uppercase tracking-[0.35em] text-white/40">E-Mail</label>
-                    <input
-                      type="email"
-                      className="mt-2 w-full cursor-not-allowed rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/60"
-                      value={currentUser.email}
-                      readOnly
-                    />
+                <div className="space-y-6">
+                  <div className="grid gap-5 md:grid-cols-2">
+                    <div>
+                      <label className="text-xs font-medium uppercase tracking-[0.35em] text-white/40">Name</label>
+                      <input
+                        type="text"
+                        className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white focus:border-brand-gold focus:outline-none focus:ring-2 focus:ring-brand-gold/30"
+                        value={name}
+                        onChange={(event) => setName(event.target.value)}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium uppercase tracking-[0.35em] text-white/40">E-Mail</label>
+                      <input
+                        type="email"
+                        className="mt-2 w-full cursor-not-allowed rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/60"
+                        value={currentUser.email}
+                        readOnly
+                      />
+                    </div>
                   </div>
                   <div>
                     <label className="text-xs font-medium uppercase tracking-[0.35em] text-white/40">Über dich</label>
                     <textarea
-                      className="mt-2 min-h-[120px] w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white focus:border-brand-gold focus:outline-none focus:ring-2 focus:ring-brand-gold/30"
+                      className="mt-2 min-h-[150px] w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white focus:border-brand-gold focus:outline-none focus:ring-2 focus:ring-brand-gold/30"
                       placeholder="Welche Projekte setzt du mit dem AITI Agent um?"
                       value={bio}
                       onChange={(event) => setBio(event.target.value)}
                     />
                   </div>
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                </div>
+
+                <div className="space-y-4 lg:col-span-2 xl:col-span-1">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-1">
                     <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
                       <p className="text-xs uppercase tracking-[0.35em] text-white/40">Rolle</p>
                       <p className="mt-2 text-sm font-semibold text-white">{currentUser.role === 'admin' ? 'Administrator' : 'Nutzer'}</p>
