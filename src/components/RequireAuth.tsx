@@ -2,8 +2,18 @@ import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 export function RequireAuth() {
-  const { currentUser } = useAuth();
+  const { currentUser, isLoading } = useAuth();
   const location = useLocation();
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#0b0b0b] px-4">
+        <div className="rounded-3xl border border-white/10 bg-[#151515] px-6 py-4 text-center text-white shadow-glow">
+          <p className="text-sm text-white/70">Authentifizierung wird geladen …</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!currentUser) {
     return <Navigate to="/login" replace state={{ from: location }} />;

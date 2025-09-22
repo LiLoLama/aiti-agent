@@ -2,10 +2,12 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
   type ReactNode
 } from 'react';
+import { supabase } from '../utils/supabase';
 import {
   AgentDraft,
   AgentProfile,
@@ -13,93 +15,196 @@ import {
   AuthCredentials,
   AuthUser,
   ProfileUpdatePayload,
-  RegistrationPayload
+  RegistrationPayload,
+  UserRole
 } from '../types/auth';
-import {
-  loadCurrentUserId,
-  loadStoredUsers,
-  saveCurrentUserId,
-  saveStoredUsers,
-  StoredUser,
-  toAuthUser
-} from '../utils/authStorage';
 
 interface AuthContextValue {
   currentUser: AuthUser | null;
   users: AuthUser[];
+  isLoading: boolean;
   login: (credentials: AuthCredentials) => Promise<void>;
   register: (payload: RegistrationPayload) => Promise<void>;
-  logout: () => void;
-  updateProfile: (updates: ProfileUpdatePayload) => void;
-  toggleUserActive: (userId: string, nextActive: boolean) => void;
-  addAgent: (agent: AgentDraft) => void;
-  updateAgent: (agentId: string, updates: AgentUpdatePayload) => void;
-  removeAgent: (agentId: string) => void;
+  logout: () => Promise<void>;
+  updateProfile: (updates: ProfileUpdatePayload) => Promise<void>;
+  toggleUserActive: (userId: string, nextActive: boolean) => Promise<void>;
+  addAgent: (agent: AgentDraft) => Promise<void>;
+  updateAgent: (agentId: string, updates: AgentUpdatePayload) => Promise<void>;
+  removeAgent: (agentId: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
-const createUserFromRegistration = (payload: RegistrationPayload): StoredUser => ({
-  id:
-    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-      ? crypto.randomUUID()
-      : `user-${Math.random().toString(36).slice(2, 10)}`,
-  name: payload.name.trim(),
-  email: payload.email.toLowerCase(),
-  password: payload.password,
-  role: 'user',
-  isActive: true,
-  avatarUrl: null,
-  emailVerified: false,
-  bio: '',
-  agents: []
-});
+interface ProfileRow {
+  id: string;
+  name: string | null;
+  email: string;
+  role: UserRole | null;
+  is_active: boolean | null;
+  avatar_url: string | null;
+  email_verified: boolean | null;
+  bio: string | null;
+}
 
-const sanitizeAgent = (agent: AgentProfile): AgentProfile => ({
-  ...agent,
-  name: agent.name.trim(),
-  description: agent.description,
-  tools: agent.tools.map((tool) => tool.trim()).filter((tool) => tool.length > 0),
-  webhookUrl: agent.webhookUrl.trim()
+const mapProfile = (row: ProfileRow, agents: AgentProfile[] = []): AuthUser => ({
+  id: row.id,
+  name: row.name?.trim() || row.email,
+  email: row.email,
+  role: row.role ?? 'user',
+  isActive: row.is_active ?? true,
+  avatarUrl: row.avatar_url,
+  emailVerified: row.email_verified ?? false,
+  agents,
+  bio: row.bio ?? undefined
 });
-
-const sanitizeUsers = (users: StoredUser[]): AuthUser[] =>
-  users.map((user) => ({
-    ...toAuthUser(user),
-    agents: user.agents.map(sanitizeAgent)
-  }));
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [users, setUsers] = useState<StoredUser[]>(() => loadStoredUsers());
-  const [currentUserId, setCurrentUserId] = useState<string | null>(() => loadCurrentUserId());
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const [users, setUsers] = useState<AuthUser[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const currentUser = useMemo(
-    () => users.find((user) => user.id === currentUserId) ?? null,
-    [users, currentUserId]
+  const fetchProfile = useCallback(
+    async (userId: string): Promise<AuthUser | null> => {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
+          return null;
+        }
+        throw new Error(`Profil konnte nicht geladen werden: ${error.message}`);
+      }
+
+      return mapProfile(data as ProfileRow, []);
+    },
+    []
   );
 
-  const persistUsers = useCallback((nextUsers: StoredUser[]) => {
-    setUsers(nextUsers);
-    saveStoredUsers(nextUsers);
+  const fetchAllUsers = useCallback(async () => {
+    const { data, error } = await supabase.from('profiles').select('*');
+
+    if (error) {
+      throw new Error(`Nutzerliste konnte nicht geladen werden: ${error.message}`);
+    }
+
+    const profiles = (data as ProfileRow[]) ?? [];
+    return profiles.map((profile) => mapProfile(profile, []));
   }, []);
+
+  const refreshState = useCallback(
+    async (shouldLoadUsers = true) => {
+      setIsLoading(true);
+      try {
+        const {
+          data: { session }
+        } = await supabase.auth.getSession();
+
+        const authUser = session?.user ?? null;
+
+        if (!authUser) {
+          setCurrentUser(null);
+          setUsers([]);
+          return;
+        }
+
+        const profile = await fetchProfile(authUser.id);
+
+        if (!profile) {
+          const name =
+            typeof authUser.user_metadata?.name === 'string'
+              ? authUser.user_metadata.name
+              : authUser.email ?? 'Neuer Nutzer';
+
+          const { error } = await supabase.from('profiles').insert({
+            id: authUser.id,
+            email: authUser.email,
+            name,
+            role: 'user',
+            is_active: true,
+            avatar_url: null,
+            email_verified: Boolean(authUser.email_confirmed_at),
+            bio: null
+          });
+
+          if (error) {
+            throw new Error(`Profil konnte nicht erstellt werden: ${error.message}`);
+          }
+
+          const newProfile = await fetchProfile(authUser.id);
+          setCurrentUser(newProfile);
+          if (shouldLoadUsers && newProfile?.role === 'admin') {
+            setUsers(await fetchAllUsers());
+          } else {
+            setUsers([]);
+          }
+          return;
+        }
+
+        setCurrentUser(profile);
+
+        if (shouldLoadUsers && profile.role === 'admin') {
+          setUsers(await fetchAllUsers());
+        } else {
+          setUsers([]);
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [fetchAllUsers, fetchProfile]
+  );
+
+  useEffect(() => {
+    refreshState().catch((error) => {
+      console.error(error);
+    });
+
+    const {
+      data: { subscription }
+    } = supabase.auth.onAuthStateChange(() => {
+      refreshState().catch((error) => {
+        console.error(error);
+      });
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [refreshState]);
 
   const login = useCallback(
     async ({ email, password }: AuthCredentials) => {
-      const normalizedEmail = email.toLowerCase().trim();
-      const existingUser = users.find((user) => user.email === normalizedEmail);
+      const { error } = await supabase.auth.signInWithPassword({
+        email: email.toLowerCase().trim(),
+        password
+      });
 
-      if (!existingUser || existingUser.password !== password) {
-        throw new Error('E-Mail oder Passwort ist ungültig.');
+      if (error) {
+        throw new Error(error.message);
       }
 
-      if (!existingUser.isActive) {
+      const {
+        data: { user }
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        throw new Error('Anmeldung fehlgeschlagen.');
+      }
+
+      const profile = await fetchProfile(user.id);
+
+      if (profile && !profile.isActive) {
+        await supabase.auth.signOut();
+        setCurrentUser(null);
         throw new Error('Dein Zugang ist aktuell deaktiviert. Bitte kontaktiere das Admin-Team.');
       }
 
-      setCurrentUserId(existingUser.id);
-      saveCurrentUserId(existingUser.id);
+      await refreshState();
     },
-    [users]
+    [fetchProfile, refreshState]
   );
 
   const register = useCallback(
@@ -111,167 +216,159 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error('Bitte gib einen Namen an.');
       }
 
-      const emailAlreadyExists = users.some((user) => user.email === normalizedEmail);
+      const { data, error } = await supabase.auth.signUp({
+        email: normalizedEmail,
+        password,
+        options: {
+          data: { name: trimmedName }
+        }
+      });
 
-      if (emailAlreadyExists) {
-        throw new Error('Für diese E-Mail existiert bereits ein Account.');
+      if (error) {
+        throw new Error(error.message);
       }
 
-      const newUser = createUserFromRegistration({
-        name: trimmedName,
-        email: normalizedEmail,
-        password
-      });
-      const nextUsers = [...users, newUser];
+      const user = data.user;
+      if (!user) {
+        throw new Error('Registrierung fehlgeschlagen.');
+      }
 
-      persistUsers(nextUsers);
-      setCurrentUserId(newUser.id);
-      saveCurrentUserId(newUser.id);
+      const { error: profileError } = await supabase.from('profiles').upsert({
+        id: user.id,
+        email: normalizedEmail,
+        name: trimmedName,
+        role: 'user',
+        is_active: true,
+        avatar_url: null,
+        email_verified: Boolean(user.email_confirmed_at),
+        bio: null
+      });
+
+      if (profileError) {
+        throw new Error(`Profil konnte nicht gespeichert werden: ${profileError.message}`);
+      }
+
+      await refreshState(false);
     },
-    [persistUsers, users]
+    [refreshState]
   );
 
-  const logout = useCallback(() => {
-    setCurrentUserId(null);
-    saveCurrentUserId(null);
+  const logout = useCallback(async () => {
+    const { error } = await supabase.auth.signOut();
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    setCurrentUser(null);
+    setUsers([]);
   }, []);
 
   const updateProfile = useCallback(
-    (updates: ProfileUpdatePayload) => {
+    async (updates: ProfileUpdatePayload) => {
       if (!currentUser) {
+        throw new Error('Kein Nutzer angemeldet.');
+      }
+
+      const payload: Record<string, unknown> = {};
+
+      if (typeof updates.name === 'string') {
+        payload.name = updates.name.trim();
+      }
+
+      if (typeof updates.bio === 'string') {
+        payload.bio = updates.bio;
+      }
+
+      if ('avatarUrl' in updates) {
+        payload.avatar_url = updates.avatarUrl ?? null;
+      }
+
+      if ('emailVerified' in updates) {
+        payload.email_verified = updates.emailVerified ?? false;
+      }
+
+      if (Object.keys(payload).length === 0) {
         return;
       }
 
-      const nextUsers = users.map((user) =>
-        user.id === currentUser.id
-          ? {
-              ...user,
-              ...updates,
-              name: updates.name?.trim() ?? user.name
-            }
-          : user
-      );
+      const { error } = await supabase.from('profiles').update(payload).eq('id', currentUser.id);
 
-      persistUsers(nextUsers);
+      if (error) {
+        throw new Error(`Profil konnte nicht aktualisiert werden: ${error.message}`);
+      }
+
+      if (typeof updates.name === 'string' && updates.name.trim()) {
+        await supabase.auth.updateUser({ data: { name: updates.name.trim() } });
+      }
+
+      await refreshState();
     },
-    [currentUser, persistUsers, users]
+    [currentUser, refreshState]
   );
 
   const addAgent = useCallback(
-    (agent: AgentDraft) => {
+    async (agent: AgentDraft) => {
       if (!currentUser) {
-        return;
+        throw new Error('Kein Nutzer angemeldet.');
       }
 
-      const trimmedName = agent.name.trim();
-      if (!trimmedName) {
-        throw new Error('Bitte gib einen Agent-Namen an.');
-      }
-
-      const newAgent: AgentProfile = {
-        id:
-          typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-            ? crypto.randomUUID()
-            : `agent-${Math.random().toString(36).slice(2, 10)}`,
-        name: trimmedName,
-        description: agent.description.trim(),
-        avatarUrl: agent.avatarUrl ?? null,
-        tools: agent.tools.map((tool) => tool.trim()).filter((tool) => tool.length > 0),
-        webhookUrl: agent.webhookUrl.trim()
-      };
-
-      const nextUsers = users.map((user) =>
-        user.id === currentUser.id
-          ? {
-              ...user,
-              agents: [...user.agents, newAgent]
-            }
-          : user
-      );
-
-      persistUsers(nextUsers);
+      console.warn('Agent-Verwaltung ist deaktiviert, da keine agents-Tabelle konfiguriert ist.', agent);
+      throw new Error('Agent-Verwaltung ist in dieser Supabase-Konfiguration nicht verfügbar.');
     },
-    [currentUser, persistUsers, users]
+    [currentUser]
   );
 
   const updateAgent = useCallback(
-    (agentId: string, updates: AgentUpdatePayload) => {
+    async (agentId: string, updates: AgentUpdatePayload) => {
       if (!currentUser) {
-        return;
+        throw new Error('Kein Nutzer angemeldet.');
       }
 
-      const nextUsers = users.map((user) =>
-        user.id === currentUser.id
-          ? {
-              ...user,
-              agents: user.agents.map((agent) =>
-                agent.id === agentId
-                  ? {
-                      ...agent,
-                      ...updates,
-                      name: updates.name?.trim() ?? agent.name,
-                      description: updates.description ?? agent.description,
-                      avatarUrl: updates.avatarUrl ?? agent.avatarUrl,
-                      tools: updates.tools
-                        ? updates.tools.map((tool) => tool.trim()).filter((tool) => tool.length > 0)
-                        : agent.tools,
-                      webhookUrl: updates.webhookUrl?.trim() ?? agent.webhookUrl
-                    }
-                  : agent
-              )
-            }
-          : user
-      );
-
-      persistUsers(nextUsers);
+      console.warn('Agent-Verwaltung ist deaktiviert, Update-Anfrage ignoriert.', agentId, updates);
+      throw new Error('Agent-Verwaltung ist in dieser Supabase-Konfiguration nicht verfügbar.');
     },
-    [currentUser, persistUsers, users]
+    [currentUser]
   );
 
   const removeAgent = useCallback(
-    (agentId: string) => {
+    async (agentId: string) => {
       if (!currentUser) {
-        return;
+        throw new Error('Kein Nutzer angemeldet.');
       }
 
-      const nextUsers = users.map((user) =>
-        user.id === currentUser.id
-          ? {
-              ...user,
-              agents: user.agents.filter((agent) => agent.id !== agentId)
-            }
-          : user
-      );
-
-      persistUsers(nextUsers);
+      console.warn('Agent-Verwaltung ist deaktiviert, Lösch-Anfrage ignoriert.', agentId);
+      throw new Error('Agent-Verwaltung ist in dieser Supabase-Konfiguration nicht verfügbar.');
     },
-    [currentUser, persistUsers, users]
+    [currentUser]
   );
 
   const toggleUserActive = useCallback(
-    (userId: string, nextActive: boolean) => {
-      const nextUsers = users.map((user) =>
-        user.id === userId
-          ? {
-              ...user,
-              isActive: nextActive
-            }
-          : user
-      );
+    async (userId: string, nextActive: boolean) => {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ is_active: nextActive })
+        .eq('id', userId);
 
-      persistUsers(nextUsers);
+      if (error) {
+        throw new Error(`Nutzerstatus konnte nicht geändert werden: ${error.message}`);
+      }
 
       if (currentUser && currentUser.id === userId && !nextActive) {
-        logout();
+        await logout();
+        return;
       }
+
+      await refreshState();
     },
-    [currentUser, logout, persistUsers, users]
+    [currentUser, logout, refreshState]
   );
 
   const value = useMemo<AuthContextValue>(
     () => ({
-      currentUser: currentUser ? toAuthUser(currentUser) : null,
-      users: sanitizeUsers(users),
+      currentUser,
+      users,
+      isLoading,
       login,
       register,
       logout,
@@ -284,13 +381,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [
       addAgent,
       currentUser,
+      isLoading,
       login,
       logout,
       register,
-      toggleUserActive,
       removeAgent,
       updateAgent,
       updateProfile,
+      toggleUserActive,
       users
     ]
   );
