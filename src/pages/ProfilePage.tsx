@@ -155,7 +155,7 @@ export function ProfilePage() {
     resetAgentWebhookTest();
   };
 
-  const handleDeleteAgent = (agentId: string) => {
+  const handleDeleteAgent = async (agentId: string) => {
     if (typeof window !== 'undefined') {
       const shouldDelete = window.confirm('Möchtest du diesen Agent wirklich löschen?');
       if (!shouldDelete) {
@@ -163,7 +163,12 @@ export function ProfilePage() {
       }
     }
 
-    removeAgent(agentId);
+    try {
+      await removeAgent(agentId);
+    } catch (error) {
+      console.error(error);
+      setAgentError('Agent konnte nicht gelöscht werden. Bitte versuche es erneut.');
+    }
   };
 
   const handleAgentAvatarUpload = async (file: File | null) => {
@@ -201,7 +206,7 @@ export function ProfilePage() {
 
     try {
       if (agentModal.mode === 'create') {
-        addAgent({
+        await addAgent({
           name: agentForm.name,
           description: agentForm.description,
           avatarUrl: agentForm.avatarUrl,
@@ -209,7 +214,7 @@ export function ProfilePage() {
           webhookUrl: agentForm.webhookUrl
         });
       } else {
-        updateAgent(agentModal.agent.id, {
+        await updateAgent(agentModal.agent.id, {
           name: agentForm.name,
           description: agentForm.description,
           avatarUrl: agentForm.avatarUrl,
@@ -234,7 +239,7 @@ export function ProfilePage() {
     setFeedback(null);
 
     try {
-      updateProfile({
+      await updateProfile({
         name,
         bio,
         avatarUrl: avatarPreview
@@ -449,9 +454,12 @@ export function ProfilePage() {
                 <h1 className="mt-2 text-3xl font-semibold">Dein persönlicher Bereich</h1>
               </div>
               <button
-                onClick={() => {
-                  logout();
-                  navigate('/login', { replace: true });
+                onClick={async () => {
+                  try {
+                    await logout();
+                  } finally {
+                    navigate('/login', { replace: true });
+                  }
                 }}
                 className="rounded-full border border-white/20 px-5 py-2 text-xs font-semibold text-white/70 transition hover:bg-white/10"
               >
@@ -672,7 +680,9 @@ export function ProfilePage() {
                             <td className="px-4 py-3 text-right">
                               <button
                                 type="button"
-                                onClick={() => toggleUserActive(user.id, !user.isActive)}
+                                onClick={() => {
+                                  void toggleUserActive(user.id, !user.isActive);
+                                }}
                                 className="rounded-full border border-white/10 px-4 py-2 text-xs font-semibold text-white/70 transition hover:bg-white/10 disabled:opacity-40"
                                 disabled={user.id === currentUser.id}
                               >
