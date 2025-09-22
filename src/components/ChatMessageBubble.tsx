@@ -40,7 +40,7 @@ export function ChatMessageBubble({ message, isAgent, agentAvatar, userAvatar }:
           className={clsx(
             'rounded-3xl px-5 py-4 text-sm leading-relaxed backdrop-blur-xl border border-white/5 shadow-lg/10',
             isAgent
-              ? 'bg-[#1f1f1f] text-white'
+              ? 'bg-[#2b2b2b] text-[#ffffff]'
               : 'bg-gradient-to-r from-brand-gold via-brand-deep to-brand-gold text-surface-base shadow-glow'
           )}
         >
@@ -49,8 +49,8 @@ export function ChatMessageBubble({ message, isAgent, agentAvatar, userAvatar }:
         {message.attachments && message.attachments.length > 0 && (
           <div
             className={clsx(
-              'space-y-2 text-xs text-white/80',
-              isAgent ? 'text-left' : 'text-right'
+              'space-y-2 text-xs',
+              isAgent ? 'text-left text-[rgba(255,255,255,0.8)]' : 'text-right text-white/80'
             )}
           >
             {message.attachments.map((attachment) => {
@@ -61,12 +61,12 @@ export function ChatMessageBubble({ message, isAgent, agentAvatar, userAvatar }:
                     className="rounded-2xl border border-white/10 bg-white/5 p-3"
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="inline-flex items-center gap-2 text-white">
+                      <span className="inline-flex items-center gap-2 text-[#ffffff]">
                         <MicrophoneIcon className="h-4 w-4 text-brand-gold" />
                         Audio Nachricht
                       </span>
                       {typeof attachment.durationSeconds === 'number' ? (
-                        <span className="text-white/40">
+                        <span className={clsx(isAgent ? 'text-[rgba(255,255,255,0.4)]' : 'text-white/40')}>
                           {attachment.durationSeconds.toFixed(1)}s
                         </span>
                       ) : null}
@@ -85,7 +85,10 @@ export function ChatMessageBubble({ message, isAgent, agentAvatar, userAvatar }:
                   key={attachment.id}
                   href={attachment.url}
                   download={attachment.name}
-                  className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white transition hover:bg-white/10"
+                  className={clsx(
+                    'flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 transition hover:bg-white/10',
+                    isAgent ? 'text-[#ffffff]' : 'text-white'
+                  )}
                 >
                   <span className="flex items-center gap-2">
                     <PaperClipIcon className="h-4 w-4" />
@@ -93,13 +96,22 @@ export function ChatMessageBubble({ message, isAgent, agentAvatar, userAvatar }:
                       {attachment.name}
                     </span>
                   </span>
-                  <span className="text-white/40">{formatFileSize(attachment.size)}</span>
+                  <span className={clsx(isAgent ? 'text-[rgba(255,255,255,0.4)]' : 'text-white/40')}>
+                    {formatFileSize(attachment.size)}
+                  </span>
                 </a>
               );
             })}
           </div>
         )}
-        <span className="text-xs text-white/30">{message.timestamp}</span>
+        <span
+          className={clsx(
+            'text-xs',
+            isAgent ? 'text-[rgba(255,255,255,0.3)]' : 'text-white/30'
+          )}
+        >
+          {message.timestamp}
+        </span>
       </div>
     </div>
   );
