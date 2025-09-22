@@ -7,6 +7,7 @@ import agentAvatar from '../assets/agent-avatar.png';
 import userAvatar from '../assets/default-user.svg';
 import { AgentAuthType, AgentSettings } from '../types/settings';
 import { loadAgentSettings, saveAgentSettings } from '../utils/storage';
+import { applyColorScheme } from '../utils/theme';
 
 export function SettingsPage() {
   const navigate = useNavigate();
@@ -131,6 +132,10 @@ export function SettingsPage() {
   useEffect(() => {
     setChatBackground(settings.chatBackgroundImage ?? null);
   }, [settings.chatBackgroundImage]);
+
+  useEffect(() => {
+    applyColorScheme(settings.colorScheme);
+  }, [settings.colorScheme]);
 
   const handleSaveSettings = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -428,8 +433,8 @@ export function SettingsPage() {
                   <label className="text-xs uppercase tracking-[0.3em] text-white/40">Farbschema</label>
                   <div className="mt-3 grid gap-3 md:grid-cols-2">
                     {[
-                      { value: 'dark' as const, label: 'Dark Mode', description: 'Optimiert für niedrige Umgebungsbeleuchtung.' },
-                      { value: 'light' as const, label: 'Light Mode', description: 'Helle Darstellung für klare Sichtbarkeit.' }
+                      { value: 'dark' as const, label: 'Dark Mode' },
+                      { value: 'light' as const, label: 'Light Mode' }
                     ].map((option) => (
                       <button
                         type="button"
@@ -444,7 +449,6 @@ export function SettingsPage() {
                         aria-pressed={settings.colorScheme === option.value}
                       >
                         <span className="block text-sm font-semibold text-white">{option.label}</span>
-                        <span className="mt-1 block text-xs text-white/50">{option.description}</span>
                       </button>
                     ))}
                   </div>
