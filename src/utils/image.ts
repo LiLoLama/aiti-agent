@@ -76,7 +76,11 @@ export async function prepareImageForStorage(
     const mimeType = options.mimeType ?? DEFAULT_MIME_TYPE;
     const quality = options.quality ?? DEFAULT_QUALITY;
 
-    const compressed = canvas.toDataURL(mimeType, quality);
+    let compressed = canvas.toDataURL(mimeType, quality);
+
+    if (mimeType !== 'image/png' && compressed.startsWith('data:image/png')) {
+      compressed = canvas.toDataURL(DEFAULT_MIME_TYPE, quality);
+    }
 
     return compressed.length < dataUrl.length ? compressed : dataUrl;
   } catch (error) {

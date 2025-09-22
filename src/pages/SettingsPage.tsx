@@ -11,6 +11,42 @@ import { applyColorScheme } from '../utils/theme';
 import { sendWebhookMessage } from '../utils/webhook';
 import { prepareImageForStorage } from '../utils/image';
 
+const LOCAL_STORAGE_SAFE_LENGTH = 4_200_000;
+
+async function createBackgroundPreview(file: File): Promise<string> {
+  const attempts = [
+    { maxDimension: 1920, mimeType: 'image/webp', quality: 0.82 },
+    { maxDimension: 1600, mimeType: 'image/webp', quality: 0.75 },
+    { maxDimension: 1280, mimeType: 'image/webp', quality: 0.7 },
+    { maxDimension: 1280, mimeType: 'image/jpeg', quality: 0.72 },
+    { maxDimension: 1024, mimeType: 'image/jpeg', quality: 0.68 },
+    { maxDimension: 960, mimeType: 'image/jpeg', quality: 0.65 },
+    { maxDimension: 800, mimeType: 'image/jpeg', quality: 0.6 }
+  ] satisfies Parameters<typeof prepareImageForStorage>[1][];
+
+  let smallest = await prepareImageForStorage(file, attempts[0]);
+  let smallestLength = smallest.length;
+
+  if (smallestLength <= LOCAL_STORAGE_SAFE_LENGTH) {
+    return smallest;
+  }
+
+  for (const options of attempts.slice(1)) {
+    const candidate = await prepareImageForStorage(file, options);
+
+    if (candidate.length < smallestLength) {
+      smallest = candidate;
+      smallestLength = candidate.length;
+    }
+
+    if (candidate.length <= LOCAL_STORAGE_SAFE_LENGTH) {
+      return candidate;
+    }
+  }
+
+  return smallest;
+}
+
 export function SettingsPage() {
   const navigate = useNavigate();
   const [settings, setSettings] = useState<AgentSettings>(() => loadAgentSettings());
@@ -50,11 +86,7 @@ export function SettingsPage() {
     }
 
     try {
-      const result = await prepareImageForStorage(file, {
-        maxDimension: 1920,
-        mimeType: 'image/jpeg',
-        quality: 0.85
-      });
+      const result = await createBackgroundPreview(file);
 
       setChatBackground(result);
       updateSetting('chatBackgroundImage', result);
