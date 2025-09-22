@@ -20,6 +20,7 @@ import {
 } from '../utils/storage';
 import { sendWebhookMessage } from '../utils/webhook';
 import { applyColorScheme } from '../utils/theme';
+import { useAuth } from '../context/AuthContext';
 
 const formatTimestamp = (date: Date) =>
   date.toLocaleTimeString('de-DE', {
@@ -46,6 +47,7 @@ const toPreview = (value: string) =>
 
 export function ChatPage() {
   const navigate = useNavigate();
+  const { currentUser } = useAuth();
   const [settings, setSettings] = useState<AgentSettings>(() => loadAgentSettings());
   const [chats, setChats] = useState<Chat[]>(() => loadChats(sampleChats));
   const [activeChatId, setActiveChatId] = useState<string>(() => {
@@ -59,6 +61,7 @@ export function ChatPage() {
   const [selectedExistingFolder, setSelectedExistingFolder] = useState<string>('__none__');
   const [newFolderName, setNewFolderName] = useState('');
   const [pendingResponseChatId, setPendingResponseChatId] = useState<string | null>(null);
+  const [activeAgentId, setActiveAgentId] = useState<string | null>(null);
 
   const activeChat = useMemo(
     () => chats.find((chat) => chat.id === activeChatId) ?? chats[0],
@@ -78,15 +81,60 @@ export function ChatPage() {
     ).sort((a, b) => a.localeCompare(b));
   }, [customFolders, chats]);
 
-  const agentAvatarSource = useMemo(
+  const defaultAgentAvatar = useMemo(
     () => settings.agentAvatarImage ?? agentAvatar,
     [settings.agentAvatarImage]
   );
 
-  const userAvatarSource = useMemo(
-    () => settings.profileAvatarImage ?? userAvatar,
-    [settings.profileAvatarImage]
+  const accountAvatar = currentUser?.avatarUrl ?? userAvatar;
+
+  useEffect(() => {
+    if (!currentUser || currentUser.agents.length === 0) {
+      setActiveAgentId(null);
+      return;
+    }
+
+    setActiveAgentId((previous) => {
+      if (previous && currentUser.agents.some((agent) => agent.id === previous)) {
+        return previous;
+      }
+
+      return currentUser.agents[0].id;
+    });
+  }, [currentUser]);
+
+  const selectedAgent = useMemo(() => {
+    if (!currentUser || currentUser.agents.length === 0) {
+      return null;
+    }
+
+    if (activeAgentId) {
+      const found = currentUser.agents.find((agent) => agent.id === activeAgentId);
+      if (found) {
+        return found;
+      }
+    }
+
+    return currentUser.agents[0];
+  }, [currentUser, activeAgentId]);
+
+  const agentSwitcherOptions = useMemo(
+    () =>
+      currentUser
+        ? currentUser.agents.map((agent) => ({
+            id: agent.id,
+            name: agent.name,
+            description: agent.description
+          }))
+        : [],
+    [currentUser]
   );
+  const activeAgentAvatar = selectedAgent?.avatarUrl ?? defaultAgentAvatar;
+  const activeAgentName = selectedAgent?.name ?? 'AITI Agent';
+  const activeAgentRole = selectedAgent?.description?.trim()
+    ? selectedAgent.description
+    : 'Dein digitaler Companion';
+  const hasAgents = Boolean(selectedAgent);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -115,6 +163,11 @@ export function ChatPage() {
   useEffect(() => {
     saveCustomFolders(customFolders);
   }, [customFolders]);
+
+  const handleOpenAgentCreation = () => {
+    setMobileWorkspaceOpen(false);
+    navigate('/profile', { state: { openAgentModal: 'create' } });
+  };
 
   const handleNewChat = () => {
     const timestamp = new Date();
@@ -351,8 +404,14 @@ export function ChatPage() {
 
     setPendingResponseChatId(updatedChat.id);
 
+    const effectiveWebhookUrl = selectedAgent?.webhookUrl?.trim() || settings.webhookUrl;
+    const webhookSettings: AgentSettings = {
+      ...settings,
+      webhookUrl: effectiveWebhookUrl
+    };
+
     try {
-      const webhookResponse = await sendWebhookMessage(settings, {
+      const webhookResponse = await sendWebhookMessage(webhookSettings, {
         chatId: updatedChat.id,
         message: trimmedText,
         messageId: userMessage.id,
@@ -420,8 +479,8 @@ export function ChatPage() {
     <div className="relative flex h-screen min-h-0 flex-col overflow-hidden bg-[#111111] text-white">
       <MobileNavBar
         onNewChat={handleNewChat}
-        onOpenSettings={() => navigate('/settings')}
         onToggleOverview={() => setMobileWorkspaceOpen(true)}
+        onOpenProfile={() => navigate('/profile')}
       />
 
       <div className="flex flex-1 overflow-hidden">
@@ -438,17 +497,23 @@ export function ChatPage() {
             onDeleteChat={handleDeleteChat}
             customFolders={customFolders}
             onAssignChatFolder={handleAssignChatFolder}
-            onOpenSettings={() => navigate('/settings')}
           />
         )}
 
         <main className="flex flex-1 min-h-0 flex-col">
           <ChatHeader
-            agentName="AITI Agent"
-            agentRole="Dein digitaler Companion"
+            agentName={activeAgentName}
+            agentRole={activeAgentRole}
             agentStatus="online"
             onOpenOverview={() => setMobileWorkspaceOpen(true)}
-            agentAvatar={agentAvatarSource}
+            agentAvatar={activeAgentAvatar}
+            userName={currentUser?.name}
+            userAvatar={accountAvatar}
+            onOpenProfile={() => navigate('/profile')}
+            agents={agentSwitcherOptions}
+            activeAgentId={selectedAgent?.id ?? null}
+            onSelectAgent={(agentId) => setActiveAgentId(agentId)}
+            onCreateAgent={handleOpenAgentCreation}
           />
 
           <div className="hidden px-4 pt-4 md:px-6 lg:flex">
@@ -466,23 +531,41 @@ export function ChatPage() {
           </div>
 
           <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
-            {activeChat && (
-              <ChatTimeline
-                chat={activeChat}
-                agentAvatar={agentAvatarSource}
-                userAvatar={userAvatarSource}
-                isAwaitingResponse={pendingResponseChatId === activeChat.id}
-              />
-            )}
+            {hasAgents ? (
+              <>
+                {activeChat && (
+                  <ChatTimeline
+                    chat={activeChat}
+                    agentAvatar={activeAgentAvatar}
+                    userAvatar={accountAvatar}
+                    isAwaitingResponse={pendingResponseChatId === activeChat.id}
+                  />
+                )}
 
-            <div className="px-4 pb-28 pt-2 md:px-8 md:pb-10">
-              <ChatInput
-                onSendMessage={handleSendMessage}
-              />
-              <p className="mt-3 text-xs text-white/30">
-                Audio- und Textnachrichten werden direkt an deinen n8n-Webhook gesendet und als strukturierte Antwort im Stream angezeigt.
-              </p>
-            </div>
+                <div className="px-4 pb-28 pt-2 md:px-8 md:pb-10">
+                  <ChatInput onSendMessage={handleSendMessage} />
+                  <p className="mt-3 text-xs text-white/30">
+                    Audio- und Textnachrichten werden direkt an deinen n8n-Webhook gesendet und als strukturierte Antwort im Stream angezeigt.
+                  </p>
+                </div>
+              </>
+            ) : (
+              <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
+                <div className="max-w-md space-y-5">
+                  <h2 className="text-2xl font-semibold text-white">Baue deinen ersten Agenten</h2>
+                  <p className="text-sm text-white/60">
+                    Lege deinen ersten Agenten an, um deine Chats zu starten.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleOpenAgentCreation}
+                    className="inline-flex items-center justify-center rounded-full bg-gradient-to-r from-brand-gold via-brand-deep to-brand-gold px-6 py-3 text-sm font-semibold text-black shadow-glow transition hover:opacity-90"
+                  >
+                    Ersten Agent erstellen
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </main>
       </div>

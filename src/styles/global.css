@@ -160,6 +160,20 @@ body.theme-light .bg-\[\#141414\]\/95 {
   background-color: rgba(255, 255, 255, 0.95) !important;
 }
 
+body.theme-light .bg-\[\#141414\]\/90 {
+  background-color: rgba(255, 255, 255, 0.92) !important;
+}
+
+body.theme-light .bg-\[\#141414\] {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
+body.theme-light .bg-\[\#0d0d0d\] {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+
 body.theme-light .bg-\[\#121212\] {
   background-color: #ffffff !important;
 }

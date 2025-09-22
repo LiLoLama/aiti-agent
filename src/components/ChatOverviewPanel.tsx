@@ -7,7 +7,6 @@ import {
   ChevronRightIcon,
   XMarkIcon,
   PlusIcon,
-  Cog6ToothIcon,
   FolderArrowDownIcon
 } from '@heroicons/react/24/outline';
 import clsx from 'clsx';
@@ -25,7 +24,6 @@ interface ChatOverviewPanelProps {
   onDeleteChat: (chatId: string) => void;
   customFolders: string[];
   onAssignChatFolder: (chatId: string) => void;
-  onOpenSettings: () => void;
 }
 
 export function ChatOverviewPanel({
@@ -39,8 +37,7 @@ export function ChatOverviewPanel({
   onRenameChat,
   onDeleteChat,
   customFolders,
-  onAssignChatFolder,
-  onOpenSettings
+  onAssignChatFolder
 }: ChatOverviewPanelProps) {
   const chatsByFolder = useMemo(() => {
     return chats.reduce<Record<string, Chat[]>>((acc, chat) => {
@@ -259,14 +256,6 @@ export function ChatOverviewPanel({
         )}
       </div>
 
-      <div className="border-t border-white/10 px-6 py-6">
-        <button
-          onClick={onOpenSettings}
-          className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-white/80 transition hover:bg-white/10"
-        >
-          <Cog6ToothIcon className="h-5 w-5" /> Einstellungen
-        </button>
-      </div>
     </div>
   );
 

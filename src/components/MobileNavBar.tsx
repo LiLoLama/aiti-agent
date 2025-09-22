@@ -1,16 +1,12 @@
-import {
-  PlusCircleIcon,
-  AdjustmentsHorizontalIcon,
-  Squares2X2Icon
-} from '@heroicons/react/24/outline';
+import { PlusCircleIcon, Squares2X2Icon, UserCircleIcon } from '@heroicons/react/24/outline';
 
 interface MobileNavBarProps {
   onNewChat: () => void;
-  onOpenSettings: () => void;
   onToggleOverview: () => void;
+  onOpenProfile: () => void;
 }
 
-export function MobileNavBar({ onNewChat, onOpenSettings, onToggleOverview }: MobileNavBarProps) {
+export function MobileNavBar({ onNewChat, onToggleOverview, onOpenProfile }: MobileNavBarProps) {
   return (
     <nav className="lg:hidden fixed inset-x-0 bottom-0 z-30 border-t border-white/10 bg-[#141414]/95 backdrop-blur-xl">
       <div className="mx-auto flex max-w-3xl items-center justify-around px-6 py-3 text-white/70">
@@ -29,11 +25,11 @@ export function MobileNavBar({ onNewChat, onOpenSettings, onToggleOverview }: Mo
           Neu
         </button>
         <button
-          onClick={onOpenSettings}
+          onClick={onOpenProfile}
           className="flex flex-col items-center text-xs font-medium gap-1"
         >
-          <AdjustmentsHorizontalIcon className="h-6 w-6" />
-          Settings
+          <UserCircleIcon className="h-6 w-6" />
+          Profil
         </button>
       </div>
     </nav>
