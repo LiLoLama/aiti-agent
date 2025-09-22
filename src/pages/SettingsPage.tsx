@@ -9,6 +9,7 @@ import { AgentAuthType, AgentSettings } from '../types/settings';
 import { loadAgentSettings, saveAgentSettings } from '../utils/storage';
 import { applyColorScheme } from '../utils/theme';
 import { sendWebhookMessage } from '../utils/webhook';
+import { prepareImageForStorage } from '../utils/image';
 
 export function SettingsPage() {
   const navigate = useNavigate();
@@ -42,30 +43,37 @@ export function SettingsPage() {
     }));
   };
 
-  const handleBackgroundUpload = (event: ChangeEvent<HTMLInputElement>) => {
+  const handleBackgroundUpload = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) {
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = typeof reader.result === 'string' ? reader.result : null;
+    try {
+      const result = await prepareImageForStorage(file, {
+        maxDimension: 1920,
+        mimeType: 'image/jpeg',
+        quality: 0.85
+      });
+
       setChatBackground(result);
       updateSetting('chatBackgroundImage', result);
 
       if (typeof window !== 'undefined') {
-        if (result) {
+        try {
           window.localStorage.setItem('chatBackgroundImage', result);
-        } else {
-          window.localStorage.removeItem('chatBackgroundImage');
+          window.dispatchEvent(new Event('chat-background-change'));
+        } catch (storageError) {
+          console.error('Hintergrundbild konnte nicht gespeichert werden.', storageError);
         }
-
-        window.dispatchEvent(new Event('chat-background-change'));
       }
-    };
-
-    reader.readAsDataURL(file);
+    } catch (error) {
+      console.error('Hintergrundbild konnte nicht verarbeitet werden.', error);
+    } finally {
+      if (backgroundInputRef.current) {
+        backgroundInputRef.current.value = '';
+      }
+    }
   };
 
   const handleBackgroundReset = () => {
@@ -82,23 +90,27 @@ export function SettingsPage() {
     }
   };
 
-  const handleProfileAvatarUpload = (event: ChangeEvent<HTMLInputElement>) => {
+  const handleProfileAvatarUpload = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) {
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = typeof reader.result === 'string' ? reader.result : null;
-      updateSetting('profileAvatarImage', result);
+    try {
+      const result = await prepareImageForStorage(file, {
+        maxDimension: 512,
+        mimeType: 'image/jpeg',
+        quality: 0.9
+      });
 
+      updateSetting('profileAvatarImage', result);
+    } catch (error) {
+      console.error('Profilbild konnte nicht verarbeitet werden.', error);
+    } finally {
       if (profileAvatarInputRef.current) {
         profileAvatarInputRef.current.value = '';
       }
-    };
-
-    reader.readAsDataURL(file);
+    }
   };
 
   const handleProfileAvatarReset = () => {
@@ -108,23 +120,27 @@ export function SettingsPage() {
     }
   };
 
-  const handleAgentAvatarUpload = (event: ChangeEvent<HTMLInputElement>) => {
+  const handleAgentAvatarUpload = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) {
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = typeof reader.result === 'string' ? reader.result : null;
-      updateSetting('agentAvatarImage', result);
+    try {
+      const result = await prepareImageForStorage(file, {
+        maxDimension: 512,
+        mimeType: 'image/jpeg',
+        quality: 0.9
+      });
 
+      updateSetting('agentAvatarImage', result);
+    } catch (error) {
+      console.error('Agentenbild konnte nicht verarbeitet werden.', error);
+    } finally {
       if (agentAvatarInputRef.current) {
         agentAvatarInputRef.current.value = '';
       }
-    };
-
-    reader.readAsDataURL(file);
+    }
   };
 
   const handleAgentAvatarReset = () => {
