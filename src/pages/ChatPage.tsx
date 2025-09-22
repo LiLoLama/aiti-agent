@@ -59,15 +59,6 @@ export function ChatPage() {
   const [selectedExistingFolder, setSelectedExistingFolder] = useState<string>('__none__');
   const [newFolderName, setNewFolderName] = useState('');
   const [pendingResponseChatId, setPendingResponseChatId] = useState<string | null>(null);
-  const [chatBackground, setChatBackground] = useState<string | null>(() => {
-    if (typeof window === 'undefined') {
-      return settings.chatBackgroundImage ?? null;
-    }
-
-    return (
-      window.localStorage.getItem('chatBackgroundImage') ?? settings.chatBackgroundImage ?? null
-    );
-  });
 
   const activeChat = useMemo(
     () => chats.find((chat) => chat.id === activeChatId) ?? chats[0],
@@ -114,10 +105,6 @@ export function ChatPage() {
   }, []);
 
   useEffect(() => {
-    setChatBackground(settings.chatBackgroundImage ?? null);
-  }, [settings.chatBackgroundImage]);
-
-  useEffect(() => {
     applyColorScheme(settings.colorScheme);
   }, [settings.colorScheme]);
 
@@ -128,24 +115,6 @@ export function ChatPage() {
   useEffect(() => {
     saveCustomFolders(customFolders);
   }, [customFolders]);
-
-  useEffect(() => {
-    const updateBackgroundFromStorage = () => {
-      if (typeof window === 'undefined') {
-        return;
-      }
-
-      setChatBackground(window.localStorage.getItem('chatBackgroundImage'));
-    };
-
-    updateBackgroundFromStorage();
-
-    window.addEventListener('chat-background-change', updateBackgroundFromStorage);
-
-    return () => {
-      window.removeEventListener('chat-background-change', updateBackgroundFromStorage);
-    };
-  }, []);
 
   const handleNewChat = () => {
     const timestamp = new Date();
@@ -498,7 +467,6 @@ export function ChatPage() {
                 chat={activeChat}
                 agentAvatar={agentAvatarSource}
                 userAvatar={userAvatarSource}
-                backgroundImage={chatBackground ?? undefined}
                 isAwaitingResponse={pendingResponseChatId === activeChat.id}
               />
             )}

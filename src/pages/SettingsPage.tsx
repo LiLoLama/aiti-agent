@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeftIcon, PhotoIcon } from '@heroicons/react/24/outline';
+import { ArrowLeftIcon } from '@heroicons/react/24/outline';
 import clsx from 'clsx';
 
 import agentAvatar from '../assets/agent-avatar.png';
@@ -11,53 +11,9 @@ import { applyColorScheme } from '../utils/theme';
 import { sendWebhookMessage } from '../utils/webhook';
 import { prepareImageForStorage } from '../utils/image';
 
-const LOCAL_STORAGE_SAFE_LENGTH = 4_200_000;
-
-async function createBackgroundPreview(file: File): Promise<string> {
-  const attempts = [
-    { maxDimension: 1920, mimeType: 'image/webp', quality: 0.82 },
-    { maxDimension: 1600, mimeType: 'image/webp', quality: 0.75 },
-    { maxDimension: 1280, mimeType: 'image/webp', quality: 0.7 },
-    { maxDimension: 1280, mimeType: 'image/jpeg', quality: 0.72 },
-    { maxDimension: 1024, mimeType: 'image/jpeg', quality: 0.68 },
-    { maxDimension: 960, mimeType: 'image/jpeg', quality: 0.65 },
-    { maxDimension: 800, mimeType: 'image/jpeg', quality: 0.6 }
-  ] satisfies Parameters<typeof prepareImageForStorage>[1][];
-
-  let smallest = await prepareImageForStorage(file, attempts[0]);
-  let smallestLength = smallest.length;
-
-  if (smallestLength <= LOCAL_STORAGE_SAFE_LENGTH) {
-    return smallest;
-  }
-
-  for (const options of attempts.slice(1)) {
-    const candidate = await prepareImageForStorage(file, options);
-
-    if (candidate.length < smallestLength) {
-      smallest = candidate;
-      smallestLength = candidate.length;
-    }
-
-    if (candidate.length <= LOCAL_STORAGE_SAFE_LENGTH) {
-      return candidate;
-    }
-  }
-
-  return smallest;
-}
-
 export function SettingsPage() {
   const navigate = useNavigate();
   const [settings, setSettings] = useState<AgentSettings>(() => loadAgentSettings());
-  const [chatBackground, setChatBackground] = useState<string | null>(() => {
-    if (typeof window === 'undefined') {
-      return null;
-    }
-
-    return window.localStorage.getItem('chatBackgroundImage') ?? settings.chatBackgroundImage ?? null;
-  });
-  const backgroundInputRef = useRef<HTMLInputElement | null>(null);
   const profileAvatarInputRef = useRef<HTMLInputElement | null>(null);
   const agentAvatarInputRef = useRef<HTMLInputElement | null>(null);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
@@ -77,49 +33,6 @@ export function SettingsPage() {
       ...prev,
       [key]: value
     }));
-  };
-
-  const handleBackgroundUpload = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) {
-      return;
-    }
-
-    try {
-      const result = await createBackgroundPreview(file);
-
-      setChatBackground(result);
-      updateSetting('chatBackgroundImage', result);
-
-      if (typeof window !== 'undefined') {
-        try {
-          window.localStorage.setItem('chatBackgroundImage', result);
-          window.dispatchEvent(new Event('chat-background-change'));
-        } catch (storageError) {
-          console.error('Hintergrundbild konnte nicht gespeichert werden.', storageError);
-        }
-      }
-    } catch (error) {
-      console.error('Hintergrundbild konnte nicht verarbeitet werden.', error);
-    } finally {
-      if (backgroundInputRef.current) {
-        backgroundInputRef.current.value = '';
-      }
-    }
-  };
-
-  const handleBackgroundReset = () => {
-    setChatBackground(null);
-    updateSetting('chatBackgroundImage', null);
-
-    if (typeof window !== 'undefined') {
-      window.localStorage.removeItem('chatBackgroundImage');
-      window.dispatchEvent(new Event('chat-background-change'));
-    }
-
-    if (backgroundInputRef.current) {
-      backgroundInputRef.current.value = '';
-    }
   };
 
   const handleProfileAvatarUpload = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -183,10 +96,6 @@ export function SettingsPage() {
   };
 
   useEffect(() => {
-    setChatBackground(settings.chatBackgroundImage ?? null);
-  }, [settings.chatBackgroundImage]);
-
-  useEffect(() => {
     applyColorScheme(settings.colorScheme);
   }, [settings.colorScheme]);
 
@@ -195,8 +104,7 @@ export function SettingsPage() {
     const payload: AgentSettings = {
       ...settings,
       profileAvatarImage: settings.profileAvatarImage ?? null,
-      agentAvatarImage: settings.agentAvatarImage ?? null,
-      chatBackgroundImage: chatBackground ?? null
+      agentAvatarImage: settings.agentAvatarImage ?? null
     };
 
     try {
@@ -539,47 +447,6 @@ export function SettingsPage() {
                         <span className="block text-sm font-semibold text-white">{option.label}</span>
                       </button>
                     ))}
-                  </div>
-                </div>
-                <div>
-                  <label className="text-xs uppercase tracking-[0.3em] text-white/40">Chat Hintergrund</label>
-                  <div className="mt-3 space-y-3">
-                    <div className="flex flex-wrap gap-3">
-                      <button
-                        type="button"
-                        onClick={() => backgroundInputRef.current?.click()}
-                        className="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-xs font-semibold text-white/70 transition hover:bg-white/10"
-                      >
-                        <PhotoIcon className="h-4 w-4" /> Hintergrund wählen
-                      </button>
-                      {chatBackground && (
-                        <button
-                          type="button"
-                          onClick={handleBackgroundReset}
-                          className="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-xs font-semibold text-white/60 transition hover:bg-white/10"
-                        >
-                          Zurücksetzen
-                        </button>
-                      )}
-                    </div>
-                    <input
-                      ref={backgroundInputRef}
-                      type="file"
-                      accept="image/*"
-                      onChange={handleBackgroundUpload}
-                      className="hidden"
-                    />
-                    {chatBackground ? (
-                      <div className="overflow-hidden rounded-2xl border border-white/10 bg-black/30">
-                        <img
-                          src={chatBackground}
-                          alt="Aktuelles Chat Hintergrundbild"
-                          className="h-40 w-full object-cover"
-                        />
-                      </div>
-                    ) : (
-                      <p className="text-xs text-white/40">Noch kein Hintergrund festgelegt.</p>
-                    )}
                   </div>
                 </div>
               </div>

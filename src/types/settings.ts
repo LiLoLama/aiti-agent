@@ -12,7 +12,6 @@ export interface AgentSettings {
   basicAuthPassword?: string;
   oauthToken?: string;
   colorScheme: 'light' | 'dark';
-  chatBackgroundImage: string | null;
 }
 
 export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
@@ -22,6 +21,5 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   agentAvatarImage: null,
   webhookUrl: '',
   authType: 'none',
-  colorScheme: 'dark',
-  chatBackgroundImage: null
+  colorScheme: 'dark'
 };
