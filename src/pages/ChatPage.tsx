@@ -20,6 +20,7 @@ import {
 } from '../utils/storage';
 import { sendWebhookMessage } from '../utils/webhook';
 import { applyColorScheme } from '../utils/theme';
+import { useAuth } from '../context/AuthContext';
 
 const formatTimestamp = (date: Date) =>
   date.toLocaleTimeString('de-DE', {
@@ -46,6 +47,7 @@ const toPreview = (value: string) =>
 
 export function ChatPage() {
   const navigate = useNavigate();
+  const { currentUser } = useAuth();
   const [settings, setSettings] = useState<AgentSettings>(() => loadAgentSettings());
   const [chats, setChats] = useState<Chat[]>(() => loadChats(sampleChats));
   const [activeChatId, setActiveChatId] = useState<string>(() => {
@@ -87,6 +89,7 @@ export function ChatPage() {
     () => settings.profileAvatarImage ?? userAvatar,
     [settings.profileAvatarImage]
   );
+  const accountAvatar = currentUser?.avatarUrl ?? userAvatarSource;
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -422,6 +425,7 @@ export function ChatPage() {
         onNewChat={handleNewChat}
         onOpenSettings={() => navigate('/settings')}
         onToggleOverview={() => setMobileWorkspaceOpen(true)}
+        onOpenProfile={() => navigate('/profile')}
       />
 
       <div className="flex flex-1 overflow-hidden">
@@ -449,6 +453,9 @@ export function ChatPage() {
             agentStatus="online"
             onOpenOverview={() => setMobileWorkspaceOpen(true)}
             agentAvatar={agentAvatarSource}
+            userName={currentUser?.name}
+            userAvatar={accountAvatar}
+            onOpenProfile={() => navigate('/profile')}
           />
 
           <div className="hidden px-4 pt-4 md:px-6 lg:flex">

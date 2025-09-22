@@ -5,6 +5,7 @@ import App from './App';
 import './styles/global.css';
 import { loadAgentSettings } from './utils/storage';
 import { applyColorScheme } from './utils/theme';
+import { AuthProvider } from './context/AuthContext';
 
 if (typeof window !== 'undefined') {
   const initialSettings = loadAgentSettings();
@@ -14,7 +15,9 @@ if (typeof window !== 'undefined') {
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
     <BrowserRouter>
-      <App />
+      <AuthProvider>
+        <App />
+      </AuthProvider>
     </BrowserRouter>
   </React.StrictMode>
 );

@@ -8,6 +8,9 @@ interface ChatHeaderProps {
   agentStatus: 'online' | 'offline' | 'busy';
   onOpenOverview: () => void;
   agentAvatar: string;
+  userName?: string;
+  userAvatar?: string;
+  onOpenProfile?: () => void;
 }
 
 const statusCopy: Record<ChatHeaderProps['agentStatus'], string> = {
@@ -21,7 +24,10 @@ export function ChatHeader({
   agentRole,
   agentStatus,
   onOpenOverview,
-  agentAvatar
+  agentAvatar,
+  userName,
+  userAvatar,
+  onOpenProfile
 }: ChatHeaderProps) {
   const statusColor = useMemo(() => {
     switch (agentStatus) {
@@ -56,6 +62,24 @@ export function ChatHeader({
           </div>
         </div>
       </div>
+      {userName && (
+        <button
+          onClick={onOpenProfile}
+          className="group flex items-center gap-3 rounded-full border border-white/10 bg-white/[0.05] px-3 py-2 text-left text-white/70 transition hover:bg-white/10"
+        >
+          <div className="relative h-10 w-10 overflow-hidden rounded-2xl border border-white/10">
+            <img
+              src={userAvatar}
+              alt={userName}
+              className="h-full w-full object-cover"
+            />
+          </div>
+          <div className="hidden text-sm font-semibold sm:block">
+            <p className="text-white">{userName}</p>
+            <p className="text-xs text-white/40 group-hover:text-white/60">Mein Profil</p>
+          </div>
+        </button>
+      )}
     </header>
   );
 }
