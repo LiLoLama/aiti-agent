@@ -86,11 +86,7 @@ export function ChatPage() {
     [settings.agentAvatarImage]
   );
 
-  const userAvatarSource = useMemo(
-    () => settings.profileAvatarImage ?? userAvatar,
-    [settings.profileAvatarImage]
-  );
-  const accountAvatar = currentUser?.avatarUrl ?? userAvatarSource;
+  const accountAvatar = currentUser?.avatarUrl ?? userAvatar;
 
   useEffect(() => {
     if (!currentUser || currentUser.agents.length === 0) {
@@ -483,7 +479,6 @@ export function ChatPage() {
     <div className="relative flex h-screen min-h-0 flex-col overflow-hidden bg-[#111111] text-white">
       <MobileNavBar
         onNewChat={handleNewChat}
-        onOpenSettings={() => navigate('/settings')}
         onToggleOverview={() => setMobileWorkspaceOpen(true)}
         onOpenProfile={() => navigate('/profile')}
       />
@@ -502,7 +497,6 @@ export function ChatPage() {
             onDeleteChat={handleDeleteChat}
             customFolders={customFolders}
             onAssignChatFolder={handleAssignChatFolder}
-            onOpenSettings={() => navigate('/settings')}
           />
         )}
 
@@ -543,7 +537,7 @@ export function ChatPage() {
                   <ChatTimeline
                     chat={activeChat}
                     agentAvatar={activeAgentAvatar}
-                    userAvatar={userAvatarSource}
+                    userAvatar={accountAvatar}
                     isAwaitingResponse={pendingResponseChatId === activeChat.id}
                   />
                 )}
