@@ -5,6 +5,7 @@ import {
   CheckCircleIcon,
   Cog6ToothIcon,
   PlusCircleIcon,
+  TrashIcon,
   XCircleIcon,
   XMarkIcon
 } from '@heroicons/react/24/outline';
@@ -38,7 +39,7 @@ const createEmptyAgentForm = (): AgentFormState => ({
 });
 
 export function ProfilePage() {
-  const { currentUser, users, updateProfile, toggleUserActive, logout, addAgent, updateAgent } = useAuth();
+  const { currentUser, users, updateProfile, toggleUserActive, logout, addAgent, updateAgent, removeAgent } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [name, setName] = useState(currentUser?.name ?? '');
@@ -152,6 +153,17 @@ export function ProfilePage() {
     setAgentError(null);
     setAgentForm(createEmptyAgentForm());
     resetAgentWebhookTest();
+  };
+
+  const handleDeleteAgent = (agentId: string) => {
+    if (typeof window !== 'undefined') {
+      const shouldDelete = window.confirm('Möchtest du diesen Agent wirklich löschen?');
+      if (!shouldDelete) {
+        return;
+      }
+    }
+
+    removeAgent(agentId);
   };
 
   const handleAgentAvatarUpload = async (file: File | null) => {
@@ -392,6 +404,14 @@ export function ProfilePage() {
                 >
                   <Cog6ToothIcon className="h-4 w-4" />
                   Konfigurieren
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteAgent(agent.id)}
+                  className="inline-flex items-center gap-2 rounded-full border border-red-500/40 px-5 py-2 text-xs font-semibold text-red-400 transition hover:border-red-400 hover:bg-red-500/10 hover:text-red-200"
+                >
+                  <TrashIcon className="h-4 w-4" />
+                  Agent löschen
                 </button>
               </div>
             </div>
