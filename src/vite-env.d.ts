@@ -11,8 +11,8 @@ declare module '*.svg' {
 }
 
 interface ImportMetaEnv {
-  readonly VITE_SUPABASE_URL: https://tlkynjfknlulwijbgsne.supabase.co;
-  readonly VITE_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRsa3luamZrbmx1bHdpamJnc25lIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg1Mzg0NTUsImV4cCI6MjA3NDExNDQ1NX0.a-XNXrQMfc3Pj0P8qxped1SbmnoQeML0QfhRNWLGBrY;
+  readonly VITE_SUPABASE_URL: string;
+  readonly VITE_SUPABASE_ANON_KEY: string;
 }
 
 interface ImportMeta {
