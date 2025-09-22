@@ -4,6 +4,7 @@ import { SettingsPage } from './pages/SettingsPage';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { AdminDashboardPage } from './pages/AdminDashboardPage';
+import { LandingPage } from './pages/LandingPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { AdminRoute } from './components/AdminRoute';
 import { useAuth } from './hooks/useAuth';
@@ -13,16 +14,17 @@ function App() {
 
   return (
     <Routes>
+      <Route path="/" element={<LandingPage />} />
       <Route
         path="/login"
-        element={user ? <Navigate to="/" replace /> : <LoginPage />}
+        element={user ? <Navigate to="/chat" replace /> : <LoginPage />}
       />
       <Route
         path="/register"
-        element={user ? <Navigate to="/" replace /> : <RegisterPage />}
+        element={user ? <Navigate to="/chat" replace /> : <RegisterPage />}
       />
       <Route
-        path="/"
+        path="/chat"
         element={
           <ProtectedRoute>
             <ChatPage />

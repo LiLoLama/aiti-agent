@@ -120,7 +120,7 @@ export const AdminDashboardPage: React.FC = () => {
             <p className="text-sm text-white/60">Verwalte Benutzerzugänge und Agent-Aktivität.</p>
           </div>
           <nav className="flex items-center gap-3 text-sm text-white/70">
-            <Link to="/" className="rounded-full border border-white/10 px-4 py-2 hover:bg-white/10">
+            <Link to="/chat" className="rounded-full border border-white/10 px-4 py-2 hover:bg-white/10">
               Zum Chat
             </Link>
             <button

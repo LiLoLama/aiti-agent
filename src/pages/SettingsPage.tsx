@@ -192,7 +192,7 @@ export function SettingsPage() {
       <div className="mx-auto max-w-6xl px-4 py-8 lg:px-12">
         <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <button
-            onClick={() => navigate(-1)}
+            onClick={() => navigate('/chat')}
             className="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-sm text-white/60 hover:bg-white/10"
           >
             <ArrowLeftIcon className="h-5 w-5" />

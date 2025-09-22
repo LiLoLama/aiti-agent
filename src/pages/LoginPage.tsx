@@ -31,7 +31,7 @@ export const LoginPage: React.FC = () => {
       return;
     }
 
-    const redirectTo = state?.from?.pathname ?? '/';
+    const redirectTo = state?.from?.pathname ?? '/chat';
     navigate(redirectTo, { replace: true });
   };
 
