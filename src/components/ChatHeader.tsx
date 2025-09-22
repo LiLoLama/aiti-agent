@@ -132,7 +132,7 @@ export function ChatHeader({
           )}
 
           {isAgentMenuOpen && (
-            <div className="absolute left-0 top-full z-10 mt-2 w-64 rounded-2xl border border-white/10 bg-[#1b1b1b]/95 p-3 shadow-2xl">
+            <div className="absolute left-0 top-full z-10 mt-2 w-64 rounded-2xl border border-white/10 bg-[#161616]/95 p-3 shadow-2xl">
               <div className="space-y-2">
                 {agentOptions.length > 0 && hasSelectionHandler ? (
                   agentOptions.map((agent) => (

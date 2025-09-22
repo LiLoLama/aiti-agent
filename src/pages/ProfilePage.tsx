@@ -470,7 +470,7 @@ export function ProfilePage() {
                     <label className="text-xs font-medium uppercase tracking-[0.35em] text-white/40">Name</label>
                     <input
                       type="text"
-                      className="mt-2 w-full rounded-2xl border border-white/10 bg-[#1b1b1b] px-4 py-3 text-sm text-white focus:border-brand-gold focus:outline-none"
+                      className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white focus:border-brand-gold focus:outline-none focus:ring-2 focus:ring-brand-gold/30"
                       value={name}
                       onChange={(event) => setName(event.target.value)}
                       required
@@ -480,7 +480,7 @@ export function ProfilePage() {
                     <label className="text-xs font-medium uppercase tracking-[0.35em] text-white/40">E-Mail</label>
                     <input
                       type="email"
-                      className="mt-2 w-full cursor-not-allowed rounded-2xl border border-white/10 bg-[#1b1b1b] px-4 py-3 text-sm text-white/60"
+                      className="mt-2 w-full cursor-not-allowed rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/60"
                       value={currentUser.email}
                       readOnly
                     />
@@ -488,7 +488,7 @@ export function ProfilePage() {
                   <div>
                     <label className="text-xs font-medium uppercase tracking-[0.35em] text-white/40">Über dich</label>
                     <textarea
-                      className="mt-2 min-h-[120px] w-full rounded-2xl border border-white/10 bg-[#1b1b1b] px-4 py-3 text-sm text-white focus:border-brand-gold focus:outline-none"
+                      className="mt-2 min-h-[120px] w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white focus:border-brand-gold focus:outline-none focus:ring-2 focus:ring-brand-gold/30"
                       placeholder="Welche Projekte setzt du mit dem AITI Agent um?"
                       value={bio}
                       onChange={(event) => setBio(event.target.value)}
@@ -762,7 +762,7 @@ export function ProfilePage() {
                     <label className="text-xs font-medium uppercase tracking-[0.35em] text-white/40">Name</label>
                     <input
                       type="text"
-                      className="mt-2 w-full rounded-2xl border border-white/10 bg-[#1b1b1b] px-4 py-3 text-sm text-white focus:border-brand-gold focus:outline-none"
+                      className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white focus:border-brand-gold focus:outline-none focus:ring-2 focus:ring-brand-gold/30"
                       placeholder="Wie heißt dein Agent?"
                       value={agentForm.name}
                       onChange={(event) => setAgentForm((previous) => ({ ...previous, name: event.target.value }))}
@@ -772,7 +772,7 @@ export function ProfilePage() {
                   <div>
                     <label className="text-xs font-medium uppercase tracking-[0.35em] text-white/40">Beschreibung</label>
                     <textarea
-                      className="mt-2 min-h-[100px] w-full rounded-2xl border border-white/10 bg-[#1b1b1b] px-4 py-3 text-sm text-white focus:border-brand-gold focus:outline-none"
+                      className="mt-2 min-h-[100px] w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white focus:border-brand-gold focus:outline-none focus:ring-2 focus:ring-brand-gold/30"
                       placeholder="Wofür setzt du diesen Agenten ein?"
                       value={agentForm.description}
                       onChange={(event) =>
@@ -786,7 +786,7 @@ export function ProfilePage() {
                     </label>
                     <input
                       type="text"
-                      className="mt-2 w-full rounded-2xl border border-white/10 bg-[#1b1b1b] px-4 py-3 text-sm text-white focus:border-brand-gold focus:outline-none"
+                      className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white focus:border-brand-gold focus:outline-none focus:ring-2 focus:ring-brand-gold/30"
                       placeholder="Tool A, Tool B, Tool C"
                       value={agentForm.tools}
                       onChange={(event) => setAgentForm((previous) => ({ ...previous, tools: event.target.value }))}
@@ -796,7 +796,7 @@ export function ProfilePage() {
                     <label className="text-xs font-medium uppercase tracking-[0.35em] text-white/40">Webhook</label>
                     <input
                       type="url"
-                      className="mt-2 w-full rounded-2xl border border-white/10 bg-[#1b1b1b] px-4 py-3 text-sm text-white focus:border-brand-gold focus:outline-none"
+                      className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white focus:border-brand-gold focus:outline-none focus:ring-2 focus:ring-brand-gold/30"
                       placeholder="https://hooks.example.com/dein-agent"
                       value={agentForm.webhookUrl}
                       onChange={(event) => {
