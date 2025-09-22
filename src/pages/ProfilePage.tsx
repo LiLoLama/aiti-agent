@@ -545,20 +545,6 @@ export function ProfilePage() {
                       <p className="text-xs uppercase tracking-[0.35em] text-white/40">Agents erstellt</p>
                       <p className="mt-2 text-sm font-semibold text-white">{userAgents.length}</p>
                     </div>
-                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                    <p className="text-xs uppercase tracking-[0.35em] text-white/40">E-Mail</p>
-                    <p className="mt-2 inline-flex items-center gap-2 text-sm font-semibold">
-                      {currentUser.emailVerified ? (
-                        <>
-                            <CheckCircleIcon className="h-4 w-4 text-emerald-400" /> Verifiziert
-                          </>
-                        ) : (
-                          <>
-                            <XCircleIcon className="h-4 w-4 text-amber-400" /> Ausstehend
-                          </>
-                        )}
-                      </p>
-                    </div>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
                     <p className="text-xs uppercase tracking-[0.35em] text-white/40">Farbschema</p>
