@@ -35,7 +35,7 @@ export function ChatHeader({
   }, [agentStatus]);
 
   return (
-    <header className="flex items-center justify-between border-b border-white/10 bg-[#161616]/80 backdrop-blur-xl px-4 md:px-8 py-4">
+    <header className="sticky top-0 z-30 flex items-center justify-between border-b border-white/10 bg-[#161616]/80 backdrop-blur-xl px-4 py-4 md:px-8">
       <div className="flex items-center gap-4">
         <button
           className="lg:hidden rounded-full bg-white/10 p-2 text-white/80 hover:bg-white/20 transition"

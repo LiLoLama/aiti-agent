@@ -131,7 +131,7 @@ export function ChatOverviewPanel({
         </div>
       </div>
 
-      <div className="flex-1 space-y-4 overflow-y-auto px-6 py-6">
+      <div className="custom-scrollbar flex-1 space-y-4 overflow-y-auto px-6 py-6">
         {folders.map((folder) => {
           const folderChats = chatsByFolder[folder] ?? [];
           const isOpen = openFolders[folder] ?? false;
@@ -275,7 +275,7 @@ export function ChatOverviewPanel({
 
   return (
     <>
-      <aside className="hidden lg:flex w-96 flex-col border-r border-white/10 bg-[#161616]/90 backdrop-blur-xl">
+      <aside className="hidden w-96 flex-shrink-0 flex-col border-r border-white/10 bg-[#161616]/90 backdrop-blur-xl lg:sticky lg:top-0 lg:flex lg:h-screen lg:overflow-hidden">
         {PanelContent}
       </aside>
 

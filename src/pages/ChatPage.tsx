@@ -58,6 +58,7 @@ export function ChatPage() {
   const [folderSelectionChatId, setFolderSelectionChatId] = useState<string | null>(null);
   const [selectedExistingFolder, setSelectedExistingFolder] = useState<string>('__none__');
   const [newFolderName, setNewFolderName] = useState('');
+  const [pendingResponseChatId, setPendingResponseChatId] = useState<string | null>(null);
   const [chatBackground, setChatBackground] = useState<string | null>(() => {
     if (typeof window === 'undefined') {
       return settings.chatBackgroundImage ?? null;
@@ -375,6 +376,8 @@ export function ChatPage() {
       prev.map((chat) => (chat.id === updatedChat.id ? updatedChat : chat))
     );
 
+    setPendingResponseChatId(updatedChat.id);
+
     try {
       const webhookResponse = await sendWebhookMessage(settings, {
         chatId: updatedChat.id,
@@ -435,17 +438,20 @@ export function ChatPage() {
         )
       );
     }
+    finally {
+      setPendingResponseChatId(null);
+    }
   };
 
   return (
-    <div className="relative flex min-h-screen flex-col bg-[#111111] text-white">
+    <div className="relative flex h-screen min-h-0 flex-col overflow-hidden bg-[#111111] text-white">
       <MobileNavBar
         onNewChat={handleNewChat}
         onOpenSettings={() => navigate('/settings')}
         onToggleOverview={() => setMobileWorkspaceOpen(true)}
       />
 
-      <div className="flex flex-1">
+      <div className="flex flex-1 overflow-hidden">
         {(!isWorkspaceCollapsed || isMobileWorkspaceOpen) && (
           <ChatOverviewPanel
             chats={chats}
@@ -463,7 +469,7 @@ export function ChatPage() {
           />
         )}
 
-        <main className="flex flex-1 flex-col">
+        <main className="flex flex-1 min-h-0 flex-col">
           <ChatHeader
             agentName="AITI Agent"
             agentRole="N8n Workflow Companion"
@@ -486,26 +492,29 @@ export function ChatPage() {
             </button>
           </div>
 
-          {activeChat && (
-            <ChatTimeline
-              chat={activeChat}
-              agentAvatar={agentAvatarSource}
-              userAvatar={userAvatarSource}
-              backgroundImage={chatBackground ?? undefined}
-            />
-          )}
+          <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
+            {activeChat && (
+              <ChatTimeline
+                chat={activeChat}
+                agentAvatar={agentAvatarSource}
+                userAvatar={userAvatarSource}
+                backgroundImage={chatBackground ?? undefined}
+                isAwaitingResponse={pendingResponseChatId === activeChat.id}
+              />
+            )}
 
-          <div className="px-4 pb-28 pt-2 md:px-8 md:pb-10">
-            <ChatInput
-              onSendMessage={handleSendMessage}
-              pushToTalkEnabled={settings.pushToTalkEnabled}
-            />
-            <p className="mt-3 text-xs text-white/30">
-              Audio- und Textnachrichten werden direkt an deinen n8n-Webhook gesendet und als strukturierte Antwort im Stream angezeigt.
-            </p>
+            <div className="px-4 pb-28 pt-2 md:px-8 md:pb-10">
+              <ChatInput
+                onSendMessage={handleSendMessage}
+                pushToTalkEnabled={settings.pushToTalkEnabled}
+              />
+              <p className="mt-3 text-xs text-white/30">
+                Audio- und Textnachrichten werden direkt an deinen n8n-Webhook gesendet und als strukturierte Antwort im Stream angezeigt.
+              </p>
+            </div>
           </div>
         </main>
-    </div>
+      </div>
 
       {folderSelectionChatId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-10">

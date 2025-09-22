@@ -73,7 +73,7 @@ export async function sendWebhookMessage(
   const headers = buildAuthHeaders(settings);
 
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 45000);
+  const timeout = window.setTimeout(() => controller.abort(), 20000);
 
   try {
     const response = await fetch(settings.webhookUrl, {
