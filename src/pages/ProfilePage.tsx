@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import {
   ArrowLeftIcon,
@@ -8,8 +8,13 @@ import {
   XCircleIcon,
   XMarkIcon
 } from '@heroicons/react/24/outline';
+import clsx from 'clsx';
 import { useAuth } from '../context/AuthContext';
 import { AgentProfile } from '../types/auth';
+import { AgentSettings } from '../types/settings';
+import { loadAgentSettings, saveAgentSettings } from '../utils/storage';
+import { applyColorScheme } from '../utils/theme';
+import { sendWebhookMessage } from '../utils/webhook';
 import { prepareImageForStorage } from '../utils/image';
 import userAvatar from '../assets/default-user.svg';
 import agentFallbackAvatar from '../assets/agent-avatar.png';
@@ -48,6 +53,12 @@ export function ProfilePage() {
   const [agentForm, setAgentForm] = useState<AgentFormState>(() => createEmptyAgentForm());
   const [agentSaving, setAgentSaving] = useState(false);
   const [agentError, setAgentError] = useState<string | null>(null);
+  const [agentSettings, setAgentSettings] = useState<AgentSettings>(() => loadAgentSettings());
+  const [colorSchemeError, setColorSchemeError] = useState<string | null>(null);
+  const [agentWebhookTestStatus, setAgentWebhookTestStatus] = useState<
+    'idle' | 'pending' | 'success' | 'error'
+  >('idle');
+  const [agentWebhookTestMessage, setAgentWebhookTestMessage] = useState<string | null>(null);
 
   if (!currentUser) {
     return <Navigate to="/login" replace />;
@@ -56,6 +67,42 @@ export function ProfilePage() {
   const displayedAvatar = avatarPreview ?? userAvatar;
   const userAgents = currentUser.agents;
   const agentAvatarPreview = agentForm.avatarUrl ?? agentFallbackAvatar;
+
+  useEffect(() => {
+    applyColorScheme(agentSettings.colorScheme);
+  }, [agentSettings.colorScheme]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const handleSettingsUpdate = (event: WindowEventMap['aiti-settings-update']) => {
+      setAgentSettings(event.detail);
+      setColorSchemeError(null);
+    };
+
+    window.addEventListener('aiti-settings-update', handleSettingsUpdate);
+
+    return () => {
+      window.removeEventListener('aiti-settings-update', handleSettingsUpdate);
+    };
+  }, []);
+
+  useEffect(() => {
+    const state = location.state as { onboarding?: boolean; openAgentModal?: 'create' } | null;
+    if (state?.openAgentModal === 'create') {
+      setAgentForm(createEmptyAgentForm());
+      setAgentModal({ mode: 'create' });
+      setAgentError(null);
+      setAgentWebhookTestStatus('idle');
+      setAgentWebhookTestMessage(null);
+      navigate(location.pathname, {
+        replace: true,
+        state: state.onboarding ? { onboarding: state.onboarding } : undefined
+      });
+    }
+  }, [location.pathname, location.state, navigate]);
 
   const handleAvatarUpload = async (file: File | null) => {
     if (!file) {
@@ -75,10 +122,16 @@ export function ProfilePage() {
     }
   };
 
+  const resetAgentWebhookTest = () => {
+    setAgentWebhookTestStatus('idle');
+    setAgentWebhookTestMessage(null);
+  };
+
   const openCreateAgentModal = () => {
     setAgentForm(createEmptyAgentForm());
     setAgentModal({ mode: 'create' });
     setAgentError(null);
+    resetAgentWebhookTest();
   };
 
   const openEditAgentModal = (agent: AgentProfile) => {
@@ -91,12 +144,14 @@ export function ProfilePage() {
     });
     setAgentModal({ mode: 'edit', agent });
     setAgentError(null);
+    resetAgentWebhookTest();
   };
 
   const closeAgentModal = () => {
     setAgentModal(null);
     setAgentError(null);
     setAgentForm(createEmptyAgentForm());
+    resetAgentWebhookTest();
   };
 
   const handleAgentAvatarUpload = async (file: File | null) => {
@@ -190,6 +245,99 @@ export function ProfilePage() {
     () => [...users].sort((a, b) => a.name.localeCompare(b.name)),
     [users]
   );
+
+  const handleColorSchemeChange = (scheme: AgentSettings['colorScheme']) => {
+    if (agentSettings.colorScheme === scheme) {
+      return;
+    }
+
+    setColorSchemeError(null);
+    const nextSettings: AgentSettings = {
+      ...agentSettings,
+      colorScheme: scheme
+    };
+
+    try {
+      saveAgentSettings(nextSettings);
+      setAgentSettings(nextSettings);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('aiti-settings-update', {
+            detail: nextSettings
+          })
+        );
+      }
+    } catch (error) {
+      console.error('Farbschema konnte nicht gespeichert werden.', error);
+      setColorSchemeError('Farbschema konnte nicht gespeichert werden. Bitte versuche es erneut.');
+    }
+  };
+
+  const handleTestAgentWebhook = async () => {
+    if (agentWebhookTestStatus === 'pending') {
+      return;
+    }
+
+    const webhookUrl = agentForm.webhookUrl.trim();
+    if (!webhookUrl) {
+      setAgentWebhookTestStatus('error');
+      setAgentWebhookTestMessage('Bitte gib zunächst eine Webhook URL an.');
+      return;
+    }
+
+    setAgentWebhookTestStatus('pending');
+    setAgentWebhookTestMessage('Webhook Test läuft …');
+
+    try {
+      const timestamp = new Date();
+      const messageId =
+        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+          ? crypto.randomUUID()
+          : `agent-test-${Math.random().toString(36).slice(2)}`;
+      const chatId =
+        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+          ? crypto.randomUUID()
+          : `agent-test-chat-${Math.random().toString(36).slice(2)}`;
+
+      const webhookSettings: AgentSettings = {
+        ...agentSettings,
+        webhookUrl
+      };
+
+      const response = await sendWebhookMessage(webhookSettings, {
+        chatId,
+        message: 'Webhook Test',
+        messageId,
+        history: [
+          {
+            id: messageId,
+            author: 'user',
+            content: 'Webhook Test',
+            timestamp: timestamp.toISOString()
+          }
+        ],
+        attachments: []
+      });
+
+      const trimmedResponse = response.message.trim();
+      const preview =
+        trimmedResponse.length > 200 ? `${trimmedResponse.slice(0, 197)}…` : trimmedResponse;
+
+      setAgentWebhookTestStatus('success');
+      setAgentWebhookTestMessage(
+        preview
+          ? `Webhook Test erfolgreich. Antwort: ${preview}`
+          : 'Webhook Test erfolgreich. Es wurde keine Nachricht zurückgegeben.'
+      );
+    } catch (error) {
+      setAgentWebhookTestStatus('error');
+      setAgentWebhookTestMessage(
+        error instanceof Error
+          ? `Webhook Test fehlgeschlagen: ${error.message}`
+          : 'Webhook Test fehlgeschlagen. Unbekannter Fehler.'
+      );
+    }
+  };
 
   const agentManagementContent = (
     <>
@@ -369,11 +517,11 @@ export function ProfilePage() {
                       <p className="text-xs uppercase tracking-[0.35em] text-white/40">Agents erstellt</p>
                       <p className="mt-2 text-sm font-semibold text-white">{userAgents.length}</p>
                     </div>
-                    <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                      <p className="text-xs uppercase tracking-[0.35em] text-white/40">E-Mail</p>
-                      <p className="mt-2 inline-flex items-center gap-2 text-sm font-semibold">
-                        {currentUser.emailVerified ? (
-                          <>
+                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                    <p className="text-xs uppercase tracking-[0.35em] text-white/40">E-Mail</p>
+                    <p className="mt-2 inline-flex items-center gap-2 text-sm font-semibold">
+                      {currentUser.emailVerified ? (
+                        <>
                             <CheckCircleIcon className="h-4 w-4 text-emerald-400" /> Verifiziert
                           </>
                         ) : (
@@ -383,6 +531,33 @@ export function ProfilePage() {
                         )}
                       </p>
                     </div>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                    <p className="text-xs uppercase tracking-[0.35em] text-white/40">Farbschema</p>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      {[
+                        { value: 'dark' as const, label: 'Dark Mode' },
+                        { value: 'light' as const, label: 'Light Mode' }
+                      ].map((option) => (
+                        <button
+                          type="button"
+                          key={option.value}
+                          onClick={() => handleColorSchemeChange(option.value)}
+                          className={clsx(
+                            'rounded-2xl border px-4 py-3 text-left transition',
+                            agentSettings.colorScheme === option.value
+                              ? 'border-brand-gold/60 bg-white/10 text-white shadow-glow'
+                              : 'border-white/10 bg-white/5 text-white/70 hover:bg-white/10'
+                          )}
+                          aria-pressed={agentSettings.colorScheme === option.value}
+                        >
+                          <span className="block text-sm font-semibold text-white">{option.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                    {colorSchemeError && (
+                      <p className="mt-3 text-xs text-rose-300">{colorSchemeError}</p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -624,10 +799,38 @@ export function ProfilePage() {
                       className="mt-2 w-full rounded-2xl border border-white/10 bg-[#1b1b1b] px-4 py-3 text-sm text-white focus:border-brand-gold focus:outline-none"
                       placeholder="https://hooks.example.com/dein-agent"
                       value={agentForm.webhookUrl}
-                      onChange={(event) =>
-                        setAgentForm((previous) => ({ ...previous, webhookUrl: event.target.value }))
-                      }
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setAgentForm((previous) => ({ ...previous, webhookUrl: value }));
+                        if (agentWebhookTestStatus !== 'idle') {
+                          resetAgentWebhookTest();
+                        }
+                      }}
                     />
+                    <div className="mt-3">
+                      <button
+                        type="button"
+                        onClick={handleTestAgentWebhook}
+                        disabled={agentWebhookTestStatus === 'pending'}
+                        className="inline-flex items-center justify-center rounded-full border border-white/15 bg-white/5 px-4 py-2 text-xs font-semibold text-white/80 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {agentWebhookTestStatus === 'pending' ? 'Test läuft …' : 'Webhook testen'}
+                      </button>
+                    </div>
+                    {agentWebhookTestStatus !== 'idle' && agentWebhookTestMessage && (
+                      <div
+                        className={clsx(
+                          'mt-3 rounded-2xl border px-4 py-3 text-xs',
+                          agentWebhookTestStatus === 'success'
+                            ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200'
+                            : agentWebhookTestStatus === 'pending'
+                              ? 'border-brand-gold/40 bg-brand-gold/10 text-brand-gold'
+                              : 'border-rose-500/40 bg-rose-500/10 text-rose-200'
+                        )}
+                      >
+                        {agentWebhookTestMessage}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
