@@ -207,8 +207,7 @@ export function SettingsPage() {
             }
           ],
           attachments: []
-        },
-        { responseTimeoutMs: 60000 }
+        }
       );
 
       const trimmedResponse = response.message.trim();
@@ -245,9 +244,6 @@ export function SettingsPage() {
           <div>
             <p className="text-xs uppercase tracking-[0.28em] text-white/40">Workspace</p>
             <h1 className="mt-2 text-3xl font-semibold text-white">Einstellungen &amp; Personalisierung</h1>
-            <p className="mt-3 max-w-2xl text-sm text-white/50">
-              Pflege deine Webhook-Endpunkte, Avatar Assets und Personalisierungen für deinen AITI AI Agent. Diese Oberfläche dient als Kommandozentrale für dein zukünftiges Web- und iOS-Erlebnis.
-            </p>
           </div>
           <div className="flex items-center gap-4 rounded-2xl border border-white/10 bg-white/5 p-4">
             <div className="h-16 w-16 overflow-hidden rounded-2xl border border-white/10 shadow-lg">
@@ -275,9 +271,6 @@ export function SettingsPage() {
           <section className="lg:col-span-3 space-y-8">
             <div className="rounded-3xl border border-white/10 bg-[#161616]/70 p-8 shadow-2xl">
               <h3 className="text-xl font-semibold text-white">Benutzerprofil</h3>
-              <p className="mt-2 text-sm text-white/50">
-                Richte deinen persönlichen Workspace ein. Dein Avatar erscheint in jeder Unterhaltung sowie in zukünftigen mobilen Apps.
-              </p>
               <div className="mt-6 flex flex-col gap-6 md:flex-row md:items-center">
                 <div className="flex flex-col items-center gap-3">
                   <div className="h-24 w-24 overflow-hidden rounded-3xl border border-white/10 shadow-lg">
@@ -332,7 +325,6 @@ export function SettingsPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-xl font-semibold text-white">Webhook &amp; Integrationen</h3>
-                  <p className="mt-2 text-sm text-white/50">Steuere hier, wie dein AI Agent mit n8n Workflows verbunden ist.</p>
                 </div>
                 <button
                   type="button"
@@ -437,31 +429,6 @@ export function SettingsPage() {
                     />
                   </div>
                 )}
-                <div className="md:col-span-2">
-                  <label className="text-xs uppercase tracking-[0.3em] text-white/40">Erwartetes Format</label>
-                  <div className="mt-2 grid gap-3 md:grid-cols-2">
-                    <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/70">
-                      <input
-                        type="radio"
-                        name="response-format"
-                        className="accent-brand-gold"
-                        checked={settings.responseFormat === 'text'}
-                        onChange={() => updateSetting('responseFormat', 'text')}
-                      />
-                      Plain Text Antwort
-                    </label>
-                    <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/70">
-                      <input
-                        type="radio"
-                        name="response-format"
-                        className="accent-brand-gold"
-                        checked={settings.responseFormat === 'json'}
-                        onChange={() => updateSetting('responseFormat', 'json')}
-                      />
-                      JSON Payload
-                    </label>
-                  </div>
-                </div>
               </div>
             </div>
           </section>
@@ -469,9 +436,6 @@ export function SettingsPage() {
           <aside className="lg:col-span-2 space-y-8">
             <div className="rounded-3xl border border-white/10 bg-[#161616]/70 p-8 shadow-2xl">
               <h3 className="text-xl font-semibold text-white">Agent Profilbild</h3>
-              <p className="mt-2 text-sm text-white/50">
-                Passe das Profilbild deines Agents an. Es wird überall dort angezeigt, wo dein Agent sichtbar ist.
-              </p>
               <div className="mt-6 flex flex-col gap-6 md:flex-row md:items-start">
                 <div className="flex flex-col items-center gap-3">
                   <div className="h-24 w-24 overflow-hidden rounded-3xl border border-white/10 shadow-lg">
@@ -499,20 +463,11 @@ export function SettingsPage() {
                     className="hidden"
                   />
                 </div>
-                <div className="space-y-3 text-sm text-white/60">
-                  <p>Dieses Bild erscheint im Chatkopf sowie bei allen Antworten des Agents.</p>
-                  <p>
-                    Wähle ein repräsentatives Portrait für deinen Assistenten, um das Erlebnis in Web und App konsistent zu gestalten.
-                  </p>
-                </div>
               </div>
             </div>
 
             <div className="rounded-3xl border border-white/10 bg-[#161616]/70 p-8 shadow-2xl">
               <h3 className="text-xl font-semibold text-white">Interface Optionen</h3>
-              <p className="mt-2 text-sm text-white/50">
-                Passe die visuelle Darstellung deines Chat-Erlebnisses an. Alle Änderungen werden live im Preview übernommen.
-              </p>
               <div className="mt-6 space-y-4">
                 <div>
                   <label className="text-xs uppercase tracking-[0.3em] text-white/40">Farbschema</label>
@@ -578,18 +533,6 @@ export function SettingsPage() {
                       <p className="text-xs text-white/40">Noch kein Hintergrund festgelegt.</p>
                     )}
                   </div>
-                </div>
-                <div>
-                  <label className="text-xs uppercase tracking-[0.3em] text-white/40">Audio Eingabe</label>
-                  <label className="mt-2 flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/70">
-                    Push-to-Talk aktivieren
-                    <input
-                      type="checkbox"
-                      className="accent-brand-gold"
-                      checked={settings.pushToTalkEnabled}
-                      onChange={(event) => updateSetting('pushToTalkEnabled', event.target.checked)}
-                    />
-                  </label>
                 </div>
               </div>
             </div>

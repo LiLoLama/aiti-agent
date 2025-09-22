@@ -102,9 +102,6 @@ export function ChatOverviewPanel({
               <img src={aitiLogo} alt="AITI Explorer Agent" className="h-9 w-9" />
               <h3 className="text-lg font-semibold text-white">AITI Explorer Agent</h3>
             </div>
-            <p className="mt-3 text-xs text-white/50">
-              Organisiere deine Chats, Ordner und Personalisierungen an einem Ort.
-            </p>
             <div className="mt-4 flex flex-wrap gap-2">
               <button
                 onClick={onNewChat}

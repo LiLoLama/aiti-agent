@@ -472,7 +472,7 @@ export function ChatPage() {
         <main className="flex flex-1 min-h-0 flex-col">
           <ChatHeader
             agentName="AITI Agent"
-            agentRole="N8n Workflow Companion"
+            agentRole="Dein digitaler Companion"
             agentStatus="online"
             onOpenOverview={() => setMobileWorkspaceOpen(true)}
             agentAvatar={agentAvatarSource}
@@ -506,7 +506,6 @@ export function ChatPage() {
             <div className="px-4 pb-28 pt-2 md:px-8 md:pb-10">
               <ChatInput
                 onSendMessage={handleSendMessage}
-                pushToTalkEnabled={settings.pushToTalkEnabled}
               />
               <p className="mt-3 text-xs text-white/30">
                 Audio- und Textnachrichten werden direkt an deinen n8n-Webhook gesendet und als strukturierte Antwort im Stream angezeigt.

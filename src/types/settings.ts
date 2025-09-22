@@ -11,8 +11,6 @@ export interface AgentSettings {
   basicAuthUsername?: string;
   basicAuthPassword?: string;
   oauthToken?: string;
-  responseFormat: 'text' | 'json';
-  pushToTalkEnabled: boolean;
   colorScheme: 'light' | 'dark';
   chatBackgroundImage: string | null;
 }
@@ -24,8 +22,6 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   agentAvatarImage: null,
   webhookUrl: '',
   authType: 'none',
-  responseFormat: 'text',
-  pushToTalkEnabled: true,
   colorScheme: 'dark',
   chatBackgroundImage: null
 };

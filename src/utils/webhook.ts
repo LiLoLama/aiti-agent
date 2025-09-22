@@ -80,7 +80,7 @@ export async function sendWebhookMessage(
   }
 
   const headers = buildAuthHeaders(settings);
-  const { responseTimeoutMs = 60000 } = options;
+  const { responseTimeoutMs = 20000 } = options;
 
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), responseTimeoutMs);
@@ -106,10 +106,14 @@ export async function sendWebhookMessage(
 
     if (isJson) {
       parsedResponse = await response.json();
-      if (settings.responseFormat === 'json') {
-        messageText = JSON.stringify(parsedResponse, null, 2);
-      } else if (parsedResponse && typeof parsedResponse === 'object' && 'message' in parsedResponse) {
-        messageText = String((parsedResponse as Record<string, unknown>).message ?? '');
+      if (parsedResponse && typeof parsedResponse === 'object' && 'message' in parsedResponse) {
+        const messageField = (parsedResponse as Record<string, unknown>).message;
+        messageText =
+          typeof messageField === 'string'
+            ? messageField
+            : JSON.stringify(messageField, null, 2);
+      } else if (typeof parsedResponse === 'string') {
+        messageText = parsedResponse;
       } else {
         messageText = JSON.stringify(parsedResponse, null, 2);
       }
