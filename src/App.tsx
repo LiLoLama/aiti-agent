@@ -1,12 +1,52 @@
 import { Route, Routes, Navigate } from 'react-router-dom';
 import { ChatPage } from './pages/ChatPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { LoginPage } from './pages/LoginPage';
+import { RegisterPage } from './pages/RegisterPage';
+import { AdminDashboardPage } from './pages/AdminDashboardPage';
+import { ProtectedRoute } from './components/ProtectedRoute';
+import { AdminRoute } from './components/AdminRoute';
+import { useAuth } from './hooks/useAuth';
 
 function App() {
+  const { user } = useAuth();
+
   return (
     <Routes>
-      <Route path="/" element={<ChatPage />} />
-      <Route path="/settings" element={<SettingsPage />} />
+      <Route
+        path="/login"
+        element={user ? <Navigate to="/" replace /> : <LoginPage />}
+      />
+      <Route
+        path="/register"
+        element={user ? <Navigate to="/" replace /> : <RegisterPage />}
+      />
+      <Route
+        path="/"
+        element={
+          <ProtectedRoute>
+            <ChatPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/settings"
+        element={
+          <ProtectedRoute>
+            <SettingsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin"
+        element={
+          <ProtectedRoute>
+            <AdminRoute>
+              <AdminDashboardPage />
+            </AdminRoute>
+          </ProtectedRoute>
+        }
+      />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

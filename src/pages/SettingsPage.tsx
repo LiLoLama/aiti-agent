@@ -10,9 +10,11 @@ import { loadAgentSettings, saveAgentSettings } from '../utils/storage';
 import { applyColorScheme } from '../utils/theme';
 import { sendWebhookMessage } from '../utils/webhook';
 import { prepareImageForStorage } from '../utils/image';
+import { useAuth } from '../hooks/useAuth';
 
 export function SettingsPage() {
   const navigate = useNavigate();
+  const { signOut } = useAuth();
   const [settings, setSettings] = useState<AgentSettings>(() => loadAgentSettings());
   const profileAvatarInputRef = useRef<HTMLInputElement | null>(null);
   const agentAvatarInputRef = useRef<HTMLInputElement | null>(null);
@@ -188,13 +190,23 @@ export function SettingsPage() {
   return (
     <div className="min-h-screen bg-[#101010] text-white">
       <div className="mx-auto max-w-6xl px-4 py-8 lg:px-12">
-        <button
-          onClick={() => navigate(-1)}
-          className="mb-8 inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-sm text-white/60 hover:bg-white/10"
-        >
-          <ArrowLeftIcon className="h-5 w-5" />
-          Zurück zum Chat
-        </button>
+        <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <button
+            onClick={() => navigate(-1)}
+            className="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-sm text-white/60 hover:bg-white/10"
+          >
+            <ArrowLeftIcon className="h-5 w-5" />
+            Zurück zum Chat
+          </button>
+          <button
+            onClick={async () => {
+              await signOut();
+            }}
+            className="inline-flex items-center justify-center rounded-full border border-white/10 px-4 py-2 text-sm text-white/70 transition hover:bg-white/10"
+          >
+            Abmelden
+          </button>
+        </div>
 
         <header className="flex flex-col gap-6 rounded-3xl border border-white/10 bg-[#161616]/80 p-8 shadow-[0_0_80px_rgba(250,207,57,0.08)] backdrop-blur-xl md:flex-row md:items-center md:justify-between">
           <div>
