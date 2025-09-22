@@ -1,6 +1,11 @@
-import { AuthUser } from '../types/auth';
+import { AgentProfile, AuthUser } from '../types/auth';
 
 type StoredUser = AuthUser & { password: string };
+
+const createAgentId = () =>
+  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `agent-${Math.random().toString(36).slice(2, 10)}`;
 
 const USERS_KEY = 'aiti-auth-users';
 const CURRENT_USER_KEY = 'aiti-auth-current-user';
@@ -13,10 +18,27 @@ const defaultUsers: StoredUser[] = [
     password: 'admin',
     role: 'admin',
     isActive: true,
-    agentsBuilt: 12,
     avatarUrl: null,
     emailVerified: true,
-    bio: 'Verwaltet den AITI Explorer Agent.'
+    bio: 'Verwaltet den AITI Explorer Agent.',
+    agents: [
+      {
+        id: 'agent-admin-001',
+        name: 'Explorer Agent',
+        description: 'Unterstützt das Team bei Rechercheaufgaben und Marktanalysen.',
+        avatarUrl: null,
+        tools: ['Recherche', 'Analyse-Dashboards'],
+        webhookUrl: 'https://hooks.aiti.local/explorer'
+      },
+      {
+        id: 'agent-admin-002',
+        name: 'Onboarding Coach',
+        description: 'Automatisiert das Nutzer-Onboarding und beantwortet Standardfragen.',
+        avatarUrl: null,
+        tools: ['FAQ-Datenbank', 'Kalenderzugriff'],
+        webhookUrl: 'https://hooks.aiti.local/onboarding'
+      }
+    ]
   },
   {
     id: 'user-001',
@@ -25,10 +47,19 @@ const defaultUsers: StoredUser[] = [
     password: 'passwort123',
     role: 'user',
     isActive: true,
-    agentsBuilt: 4,
     avatarUrl: null,
     emailVerified: true,
-    bio: 'Produktmanagerin mit Fokus auf Automatisierungen.'
+    bio: 'Produktmanagerin mit Fokus auf Automatisierungen.',
+    agents: [
+      {
+        id: 'agent-user-001',
+        name: 'Marketing Scout',
+        description: 'Findet inspirierende Kampagnenideen und erstellt Content-Briefs.',
+        avatarUrl: null,
+        tools: ['Canva API', 'Keyword-Recherche'],
+        webhookUrl: 'https://hooks.aiti.local/marketing-scout'
+      }
+    ]
   },
   {
     id: 'user-002',
@@ -37,12 +68,37 @@ const defaultUsers: StoredUser[] = [
     password: 'passwort123',
     role: 'user',
     isActive: false,
-    agentsBuilt: 1,
     avatarUrl: null,
     emailVerified: false,
-    bio: 'Experimentiert gerade mit eigenen Agenten.'
+    bio: 'Experimentiert gerade mit eigenen Agenten.',
+    agents: [
+      {
+        id: 'agent-user-002',
+        name: 'Support Guide',
+        description: 'Beantwortet wiederkehrende Supportanfragen aus dem Ticketsystem.',
+        avatarUrl: null,
+        tools: ['Helpdesk-API'],
+        webhookUrl: 'https://hooks.aiti.local/support-guide'
+      }
+    ]
   }
 ];
+
+const withAgentDefaults = (user: StoredUser): StoredUser => ({
+  ...user,
+  agents: Array.isArray(user.agents)
+    ? (user.agents as Partial<AgentProfile>[]).map((agent, index) => ({
+        id: agent?.id ?? `${user.id}-${index}-${createAgentId()}`,
+        name: agent?.name?.trim() && agent.name.length > 0 ? agent.name : `Agent ${index + 1}`,
+        description: agent?.description ?? '',
+        avatarUrl: agent?.avatarUrl ?? null,
+        tools: Array.isArray(agent?.tools)
+          ? agent.tools.map((tool) => tool.trim()).filter((tool) => tool.length > 0)
+          : [],
+        webhookUrl: agent?.webhookUrl ?? ''
+      }))
+    : []
+});
 
 const isBrowser = typeof window !== 'undefined';
 
@@ -61,7 +117,7 @@ const safeParse = <T>(value: string | null, fallback: T): T => {
 
 export const loadStoredUsers = (): StoredUser[] => {
   if (!isBrowser) {
-    return [...defaultUsers];
+    return defaultUsers.map(withAgentDefaults);
   }
 
   const stored = window.localStorage.getItem(USERS_KEY);
@@ -71,7 +127,7 @@ export const loadStoredUsers = (): StoredUser[] => {
     window.localStorage.setItem(USERS_KEY, JSON.stringify(users));
   }
 
-  return users;
+  return users.map(withAgentDefaults);
 };
 
 export const saveStoredUsers = (users: StoredUser[]) => {

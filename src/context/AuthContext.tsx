@@ -7,6 +7,9 @@ import {
   type ReactNode
 } from 'react';
 import {
+  AgentDraft,
+  AgentProfile,
+  AgentUpdatePayload,
   AuthCredentials,
   AuthUser,
   ProfileUpdatePayload,
@@ -29,6 +32,8 @@ interface AuthContextValue {
   logout: () => void;
   updateProfile: (updates: ProfileUpdatePayload) => void;
   toggleUserActive: (userId: string, nextActive: boolean) => void;
+  addAgent: (agent: AgentDraft) => void;
+  updateAgent: (agentId: string, updates: AgentUpdatePayload) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -43,13 +48,25 @@ const createUserFromRegistration = (payload: RegistrationPayload): StoredUser =>
   password: payload.password,
   role: 'user',
   isActive: true,
-  agentsBuilt: 0,
   avatarUrl: null,
   emailVerified: false,
-  bio: ''
+  bio: '',
+  agents: []
 });
 
-const sanitizeUsers = (users: StoredUser[]): AuthUser[] => users.map(toAuthUser);
+const sanitizeAgent = (agent: AgentProfile): AgentProfile => ({
+  ...agent,
+  name: agent.name.trim(),
+  description: agent.description,
+  tools: agent.tools.map((tool) => tool.trim()).filter((tool) => tool.length > 0),
+  webhookUrl: agent.webhookUrl.trim()
+});
+
+const sanitizeUsers = (users: StoredUser[]): AuthUser[] =>
+  users.map((user) => ({
+    ...toAuthUser(user),
+    agents: user.agents.map(sanitizeAgent)
+  }));
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [users, setUsers] = useState<StoredUser[]>(() => loadStoredUsers());
@@ -139,6 +156,77 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [currentUser, persistUsers, users]
   );
 
+  const addAgent = useCallback(
+    (agent: AgentDraft) => {
+      if (!currentUser) {
+        return;
+      }
+
+      const trimmedName = agent.name.trim();
+      if (!trimmedName) {
+        throw new Error('Bitte gib einen Agent-Namen an.');
+      }
+
+      const newAgent: AgentProfile = {
+        id:
+          typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+            ? crypto.randomUUID()
+            : `agent-${Math.random().toString(36).slice(2, 10)}`,
+        name: trimmedName,
+        description: agent.description.trim(),
+        avatarUrl: agent.avatarUrl ?? null,
+        tools: agent.tools.map((tool) => tool.trim()).filter((tool) => tool.length > 0),
+        webhookUrl: agent.webhookUrl.trim()
+      };
+
+      const nextUsers = users.map((user) =>
+        user.id === currentUser.id
+          ? {
+              ...user,
+              agents: [...user.agents, newAgent]
+            }
+          : user
+      );
+
+      persistUsers(nextUsers);
+    },
+    [currentUser, persistUsers, users]
+  );
+
+  const updateAgent = useCallback(
+    (agentId: string, updates: AgentUpdatePayload) => {
+      if (!currentUser) {
+        return;
+      }
+
+      const nextUsers = users.map((user) =>
+        user.id === currentUser.id
+          ? {
+              ...user,
+              agents: user.agents.map((agent) =>
+                agent.id === agentId
+                  ? {
+                      ...agent,
+                      ...updates,
+                      name: updates.name?.trim() ?? agent.name,
+                      description: updates.description ?? agent.description,
+                      avatarUrl: updates.avatarUrl ?? agent.avatarUrl,
+                      tools: updates.tools
+                        ? updates.tools.map((tool) => tool.trim()).filter((tool) => tool.length > 0)
+                        : agent.tools,
+                      webhookUrl: updates.webhookUrl?.trim() ?? agent.webhookUrl
+                    }
+                  : agent
+              )
+            }
+          : user
+      );
+
+      persistUsers(nextUsers);
+    },
+    [currentUser, persistUsers, users]
+  );
+
   const toggleUserActive = useCallback(
     (userId: string, nextActive: boolean) => {
       const nextUsers = users.map((user) =>
@@ -167,9 +255,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       register,
       logout,
       updateProfile,
-      toggleUserActive
+      toggleUserActive,
+      addAgent,
+      updateAgent
     }),
-    [currentUser, login, logout, register, toggleUserActive, updateProfile, users]
+    [
+      addAgent,
+      currentUser,
+      login,
+      logout,
+      register,
+      toggleUserActive,
+      updateAgent,
+      updateProfile,
+      users
+    ]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

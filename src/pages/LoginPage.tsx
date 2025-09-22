@@ -69,7 +69,7 @@ export function LoginPage() {
           'Account angelegt! Wir haben dir eine E-Mail zur Bestätigung gesendet. Du wirst direkt weitergeleitet.'
         );
         registrationSucceeded = true;
-        navigate('/profile', { replace: true });
+        navigate('/profile', { replace: true, state: { onboarding: true } });
       }
     } catch (submissionError) {
       const message =
