@@ -8,6 +8,7 @@ import userAvatar from '../assets/default-user.svg';
 import { AgentAuthType, AgentSettings } from '../types/settings';
 import { loadAgentSettings, saveAgentSettings } from '../utils/storage';
 import { applyColorScheme } from '../utils/theme';
+import { sendWebhookMessage } from '../utils/webhook';
 
 export function SettingsPage() {
   const navigate = useNavigate();
@@ -23,6 +24,10 @@ export function SettingsPage() {
   const profileAvatarInputRef = useRef<HTMLInputElement | null>(null);
   const agentAvatarInputRef = useRef<HTMLInputElement | null>(null);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [webhookTestStatus, setWebhookTestStatus] = useState<
+    'idle' | 'pending' | 'success' | 'error'
+  >('idle');
+  const [webhookTestMessage, setWebhookTestMessage] = useState('');
 
   const profileAvatarPreview = settings.profileAvatarImage ?? userAvatar;
   const agentAvatarPreview = settings.agentAvatarImage ?? agentAvatar;
@@ -163,6 +168,68 @@ export function SettingsPage() {
     }
   };
 
+  const handleWebhookTest = async () => {
+    if (webhookTestStatus === 'pending') {
+      return;
+    }
+
+    if (!settings.webhookUrl?.trim()) {
+      setWebhookTestStatus('error');
+      setWebhookTestMessage('Bitte hinterlege zuerst eine Webhook URL.');
+      return;
+    }
+
+    setWebhookTestStatus('pending');
+    setWebhookTestMessage('Webhook Test läuft …');
+
+    try {
+      const timestamp = new Date();
+      const messageId =
+        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+          ? crypto.randomUUID()
+          : Math.random().toString(36).slice(2);
+      const chatId =
+        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+          ? crypto.randomUUID()
+          : `webhook-test-${Math.random().toString(36).slice(2)}`;
+      const response = await sendWebhookMessage(
+        settings,
+        {
+          chatId,
+          messageId,
+          message: 'Webhook Test',
+          history: [
+            {
+              id: messageId,
+              author: 'user',
+              content: 'Webhook Test',
+              timestamp: timestamp.toISOString()
+            }
+          ],
+          attachments: []
+        },
+        { responseTimeoutMs: 60000 }
+      );
+
+      const trimmedResponse = response.message.trim();
+      const preview =
+        trimmedResponse.length > 200 ? `${trimmedResponse.slice(0, 197)}…` : trimmedResponse;
+      const successMessage = trimmedResponse
+        ? `Webhook Test erfolgreich. Antwort: ${preview}`
+        : 'Webhook Test erfolgreich. Es wurde eine leere Antwort zurückgegeben.';
+
+      setWebhookTestStatus('success');
+      setWebhookTestMessage(successMessage);
+    } catch (error) {
+      setWebhookTestStatus('error');
+      setWebhookTestMessage(
+        error instanceof Error
+          ? `Webhook Test fehlgeschlagen: ${error.message}`
+          : 'Webhook Test fehlgeschlagen. Unbekannter Fehler.'
+      );
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#101010] text-white">
       <div className="mx-auto max-w-6xl px-4 py-8 lg:px-12">
@@ -269,11 +336,29 @@ export function SettingsPage() {
                 </div>
                 <button
                   type="button"
-                  className="rounded-full border border-brand-gold/40 px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-brand-gold hover:bg-brand-gold/10"
+                  onClick={handleWebhookTest}
+                  disabled={webhookTestStatus === 'pending'}
+                  className={clsx(
+                    'rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] transition',
+                    webhookTestStatus === 'pending'
+                      ? 'cursor-not-allowed border-white/20 text-white/40'
+                      : 'border-brand-gold/40 text-brand-gold hover:bg-brand-gold/10'
+                  )}
                 >
-                  Test ausführen
+                  {webhookTestStatus === 'pending' ? 'Test läuft …' : 'Test ausführen'}
                 </button>
               </div>
+              {webhookTestStatus !== 'idle' && (
+                <p
+                  className={clsx('mt-3 text-sm', {
+                    'text-brand-gold': webhookTestStatus === 'success',
+                    'text-white/60': webhookTestStatus === 'pending',
+                    'text-red-400': webhookTestStatus === 'error'
+                  })}
+                >
+                  {webhookTestMessage}
+                </p>
+              )}
               <div className="mt-6 grid gap-4 md:grid-cols-2">
                 <div>
                   <label className="text-xs uppercase tracking-[0.3em] text-white/40">Webhook URL</label>

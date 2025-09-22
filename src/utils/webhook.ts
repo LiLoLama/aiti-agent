@@ -45,9 +45,18 @@ function buildAuthHeaders(settings: AgentSettings): Record<string, string> {
   return headers;
 }
 
+export interface WebhookRequestOptions {
+  /**
+   * Zeit in Millisekunden, wie lange auf eine Antwort des Webhooks gewartet werden soll,
+   * bevor der Request abgebrochen wird.
+   */
+  responseTimeoutMs?: number;
+}
+
 export async function sendWebhookMessage(
   settings: AgentSettings,
-  payload: WebhookSubmissionPayload
+  payload: WebhookSubmissionPayload,
+  options: WebhookRequestOptions = {}
 ): Promise<WebhookResponse> {
   if (!settings.webhookUrl) {
     throw new Error('Kein Webhook konfiguriert. Hinterlege die URL in den Einstellungen.');
@@ -71,9 +80,10 @@ export async function sendWebhookMessage(
   }
 
   const headers = buildAuthHeaders(settings);
+  const { responseTimeoutMs = 60000 } = options;
 
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 20000);
+  const timeout = window.setTimeout(() => controller.abort(), responseTimeoutMs);
 
   try {
     const response = await fetch(settings.webhookUrl, {
