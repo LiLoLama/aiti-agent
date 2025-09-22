@@ -62,15 +62,21 @@ export function saveAgentSettings(settings: AgentSettings) {
       chatBackgroundImage: settings.chatBackgroundImage ?? null
     };
 
-    window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(prepared));
+    const { chatBackgroundImage, ...settingsWithoutBackground } = prepared;
 
-    if (prepared.chatBackgroundImage) {
-      window.localStorage.setItem('chatBackgroundImage', prepared.chatBackgroundImage);
+    window.localStorage.setItem(
+      SETTINGS_STORAGE_KEY,
+      JSON.stringify(settingsWithoutBackground)
+    );
+
+    if (chatBackgroundImage) {
+      window.localStorage.setItem('chatBackgroundImage', chatBackgroundImage);
     } else {
       window.localStorage.removeItem('chatBackgroundImage');
     }
   } catch (error) {
     console.error('Failed to save agent settings', error);
+    throw error instanceof Error ? error : new Error('Failed to save agent settings');
   }
 }
 
