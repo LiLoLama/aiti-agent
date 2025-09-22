@@ -118,6 +118,11 @@ export function ChatPage() {
 
   const handleNewChat = () => {
     const timestamp = new Date();
+    const userName = settings.profileName?.trim();
+    const greeting = userName
+      ? `Hallo ${userName}! Wie kann ich dir heute helfen?`
+      : 'Hallo! Wie kann ich dir heute helfen?';
+
     const newChat: Chat = {
       id: crypto.randomUUID(),
       name: 'Neuer Chat',
@@ -130,8 +135,7 @@ export function ChatPage() {
         {
           id: crypto.randomUUID(),
           author: 'agent',
-          content:
-            'Hallo! Ich bin bereit, deinen Flow zu konfigurieren. Teile mir deine Ziele oder den Webhook-Endpunkt mit.',
+          content: greeting,
           timestamp: timestamp.toLocaleTimeString('de-DE', {
             hour: '2-digit',
             minute: '2-digit'
