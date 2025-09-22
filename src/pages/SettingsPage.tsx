@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeftIcon, PhotoIcon } from '@heroicons/react/24/outline';
+import { ArrowLeftIcon } from '@heroicons/react/24/outline';
 import clsx from 'clsx';
 
 import agentAvatar from '../assets/agent-avatar.png';
@@ -8,21 +8,19 @@ import userAvatar from '../assets/default-user.svg';
 import { AgentAuthType, AgentSettings } from '../types/settings';
 import { loadAgentSettings, saveAgentSettings } from '../utils/storage';
 import { applyColorScheme } from '../utils/theme';
+import { sendWebhookMessage } from '../utils/webhook';
+import { prepareImageForStorage } from '../utils/image';
 
 export function SettingsPage() {
   const navigate = useNavigate();
   const [settings, setSettings] = useState<AgentSettings>(() => loadAgentSettings());
-  const [chatBackground, setChatBackground] = useState<string | null>(() => {
-    if (typeof window === 'undefined') {
-      return null;
-    }
-
-    return window.localStorage.getItem('chatBackgroundImage') ?? settings.chatBackgroundImage ?? null;
-  });
-  const backgroundInputRef = useRef<HTMLInputElement | null>(null);
   const profileAvatarInputRef = useRef<HTMLInputElement | null>(null);
   const agentAvatarInputRef = useRef<HTMLInputElement | null>(null);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [webhookTestStatus, setWebhookTestStatus] = useState<
+    'idle' | 'pending' | 'success' | 'error'
+  >('idle');
+  const [webhookTestMessage, setWebhookTestMessage] = useState('');
 
   const profileAvatarPreview = settings.profileAvatarImage ?? userAvatar;
   const agentAvatarPreview = settings.agentAvatarImage ?? agentAvatar;
@@ -37,63 +35,27 @@ export function SettingsPage() {
     }));
   };
 
-  const handleBackgroundUpload = (event: ChangeEvent<HTMLInputElement>) => {
+  const handleProfileAvatarUpload = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) {
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = typeof reader.result === 'string' ? reader.result : null;
-      setChatBackground(result);
-      updateSetting('chatBackgroundImage', result);
+    try {
+      const result = await prepareImageForStorage(file, {
+        maxDimension: 512,
+        mimeType: 'image/jpeg',
+        quality: 0.9
+      });
 
-      if (typeof window !== 'undefined') {
-        if (result) {
-          window.localStorage.setItem('chatBackgroundImage', result);
-        } else {
-          window.localStorage.removeItem('chatBackgroundImage');
-        }
-
-        window.dispatchEvent(new Event('chat-background-change'));
-      }
-    };
-
-    reader.readAsDataURL(file);
-  };
-
-  const handleBackgroundReset = () => {
-    setChatBackground(null);
-    updateSetting('chatBackgroundImage', null);
-
-    if (typeof window !== 'undefined') {
-      window.localStorage.removeItem('chatBackgroundImage');
-      window.dispatchEvent(new Event('chat-background-change'));
-    }
-
-    if (backgroundInputRef.current) {
-      backgroundInputRef.current.value = '';
-    }
-  };
-
-  const handleProfileAvatarUpload = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) {
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = typeof reader.result === 'string' ? reader.result : null;
       updateSetting('profileAvatarImage', result);
-
+    } catch (error) {
+      console.error('Profilbild konnte nicht verarbeitet werden.', error);
+    } finally {
       if (profileAvatarInputRef.current) {
         profileAvatarInputRef.current.value = '';
       }
-    };
-
-    reader.readAsDataURL(file);
+    }
   };
 
   const handleProfileAvatarReset = () => {
@@ -103,23 +65,27 @@ export function SettingsPage() {
     }
   };
 
-  const handleAgentAvatarUpload = (event: ChangeEvent<HTMLInputElement>) => {
+  const handleAgentAvatarUpload = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) {
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = typeof reader.result === 'string' ? reader.result : null;
-      updateSetting('agentAvatarImage', result);
+    try {
+      const result = await prepareImageForStorage(file, {
+        maxDimension: 512,
+        mimeType: 'image/jpeg',
+        quality: 0.9
+      });
 
+      updateSetting('agentAvatarImage', result);
+    } catch (error) {
+      console.error('Agentenbild konnte nicht verarbeitet werden.', error);
+    } finally {
       if (agentAvatarInputRef.current) {
         agentAvatarInputRef.current.value = '';
       }
-    };
-
-    reader.readAsDataURL(file);
+    }
   };
 
   const handleAgentAvatarReset = () => {
@@ -130,10 +96,6 @@ export function SettingsPage() {
   };
 
   useEffect(() => {
-    setChatBackground(settings.chatBackgroundImage ?? null);
-  }, [settings.chatBackgroundImage]);
-
-  useEffect(() => {
     applyColorScheme(settings.colorScheme);
   }, [settings.colorScheme]);
 
@@ -142,8 +104,7 @@ export function SettingsPage() {
     const payload: AgentSettings = {
       ...settings,
       profileAvatarImage: settings.profileAvatarImage ?? null,
-      agentAvatarImage: settings.agentAvatarImage ?? null,
-      chatBackgroundImage: chatBackground ?? null
+      agentAvatarImage: settings.agentAvatarImage ?? null
     };
 
     try {
@@ -163,6 +124,67 @@ export function SettingsPage() {
     }
   };
 
+  const handleWebhookTest = async () => {
+    if (webhookTestStatus === 'pending') {
+      return;
+    }
+
+    if (!settings.webhookUrl?.trim()) {
+      setWebhookTestStatus('error');
+      setWebhookTestMessage('Bitte hinterlege zuerst eine Webhook URL.');
+      return;
+    }
+
+    setWebhookTestStatus('pending');
+    setWebhookTestMessage('Webhook Test läuft …');
+
+    try {
+      const timestamp = new Date();
+      const messageId =
+        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+          ? crypto.randomUUID()
+          : Math.random().toString(36).slice(2);
+      const chatId =
+        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+          ? crypto.randomUUID()
+          : `webhook-test-${Math.random().toString(36).slice(2)}`;
+      const response = await sendWebhookMessage(
+        settings,
+        {
+          chatId,
+          messageId,
+          message: 'Webhook Test',
+          history: [
+            {
+              id: messageId,
+              author: 'user',
+              content: 'Webhook Test',
+              timestamp: timestamp.toISOString()
+            }
+          ],
+          attachments: []
+        }
+      );
+
+      const trimmedResponse = response.message.trim();
+      const preview =
+        trimmedResponse.length > 200 ? `${trimmedResponse.slice(0, 197)}…` : trimmedResponse;
+      const successMessage = trimmedResponse
+        ? `Webhook Test erfolgreich. Antwort: ${preview}`
+        : 'Webhook Test erfolgreich. Es wurde eine leere Antwort zurückgegeben.';
+
+      setWebhookTestStatus('success');
+      setWebhookTestMessage(successMessage);
+    } catch (error) {
+      setWebhookTestStatus('error');
+      setWebhookTestMessage(
+        error instanceof Error
+          ? `Webhook Test fehlgeschlagen: ${error.message}`
+          : 'Webhook Test fehlgeschlagen. Unbekannter Fehler.'
+      );
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#101010] text-white">
       <div className="mx-auto max-w-6xl px-4 py-8 lg:px-12">
@@ -178,9 +200,6 @@ export function SettingsPage() {
           <div>
             <p className="text-xs uppercase tracking-[0.28em] text-white/40">Workspace</p>
             <h1 className="mt-2 text-3xl font-semibold text-white">Einstellungen &amp; Personalisierung</h1>
-            <p className="mt-3 max-w-2xl text-sm text-white/50">
-              Pflege deine Webhook-Endpunkte, Avatar Assets und Personalisierungen für deinen AITI AI Agent. Diese Oberfläche dient als Kommandozentrale für dein zukünftiges Web- und iOS-Erlebnis.
-            </p>
           </div>
           <div className="flex items-center gap-4 rounded-2xl border border-white/10 bg-white/5 p-4">
             <div className="h-16 w-16 overflow-hidden rounded-2xl border border-white/10 shadow-lg">
@@ -208,9 +227,6 @@ export function SettingsPage() {
           <section className="lg:col-span-3 space-y-8">
             <div className="rounded-3xl border border-white/10 bg-[#161616]/70 p-8 shadow-2xl">
               <h3 className="text-xl font-semibold text-white">Benutzerprofil</h3>
-              <p className="mt-2 text-sm text-white/50">
-                Richte deinen persönlichen Workspace ein. Dein Avatar erscheint in jeder Unterhaltung sowie in zukünftigen mobilen Apps.
-              </p>
               <div className="mt-6 flex flex-col gap-6 md:flex-row md:items-center">
                 <div className="flex flex-col items-center gap-3">
                   <div className="h-24 w-24 overflow-hidden rounded-3xl border border-white/10 shadow-lg">
@@ -265,15 +281,32 @@ export function SettingsPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-xl font-semibold text-white">Webhook &amp; Integrationen</h3>
-                  <p className="mt-2 text-sm text-white/50">Steuere hier, wie dein AI Agent mit n8n Workflows verbunden ist.</p>
                 </div>
                 <button
                   type="button"
-                  className="rounded-full border border-brand-gold/40 px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-brand-gold hover:bg-brand-gold/10"
+                  onClick={handleWebhookTest}
+                  disabled={webhookTestStatus === 'pending'}
+                  className={clsx(
+                    'rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] transition',
+                    webhookTestStatus === 'pending'
+                      ? 'cursor-not-allowed border-white/20 text-white/40'
+                      : 'border-brand-gold/40 text-brand-gold hover:bg-brand-gold/10'
+                  )}
                 >
-                  Test ausführen
+                  {webhookTestStatus === 'pending' ? 'Test läuft …' : 'Test ausführen'}
                 </button>
               </div>
+              {webhookTestStatus !== 'idle' && (
+                <p
+                  className={clsx('mt-3 text-sm', {
+                    'text-brand-gold': webhookTestStatus === 'success',
+                    'text-white/60': webhookTestStatus === 'pending',
+                    'text-red-400': webhookTestStatus === 'error'
+                  })}
+                >
+                  {webhookTestMessage}
+                </p>
+              )}
               <div className="mt-6 grid gap-4 md:grid-cols-2">
                 <div>
                   <label className="text-xs uppercase tracking-[0.3em] text-white/40">Webhook URL</label>
@@ -352,31 +385,6 @@ export function SettingsPage() {
                     />
                   </div>
                 )}
-                <div className="md:col-span-2">
-                  <label className="text-xs uppercase tracking-[0.3em] text-white/40">Erwartetes Format</label>
-                  <div className="mt-2 grid gap-3 md:grid-cols-2">
-                    <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/70">
-                      <input
-                        type="radio"
-                        name="response-format"
-                        className="accent-brand-gold"
-                        checked={settings.responseFormat === 'text'}
-                        onChange={() => updateSetting('responseFormat', 'text')}
-                      />
-                      Plain Text Antwort
-                    </label>
-                    <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/70">
-                      <input
-                        type="radio"
-                        name="response-format"
-                        className="accent-brand-gold"
-                        checked={settings.responseFormat === 'json'}
-                        onChange={() => updateSetting('responseFormat', 'json')}
-                      />
-                      JSON Payload
-                    </label>
-                  </div>
-                </div>
               </div>
             </div>
           </section>
@@ -384,9 +392,6 @@ export function SettingsPage() {
           <aside className="lg:col-span-2 space-y-8">
             <div className="rounded-3xl border border-white/10 bg-[#161616]/70 p-8 shadow-2xl">
               <h3 className="text-xl font-semibold text-white">Agent Profilbild</h3>
-              <p className="mt-2 text-sm text-white/50">
-                Passe das Profilbild deines Agents an. Es wird überall dort angezeigt, wo dein Agent sichtbar ist.
-              </p>
               <div className="mt-6 flex flex-col gap-6 md:flex-row md:items-start">
                 <div className="flex flex-col items-center gap-3">
                   <div className="h-24 w-24 overflow-hidden rounded-3xl border border-white/10 shadow-lg">
@@ -414,20 +419,11 @@ export function SettingsPage() {
                     className="hidden"
                   />
                 </div>
-                <div className="space-y-3 text-sm text-white/60">
-                  <p>Dieses Bild erscheint im Chatkopf sowie bei allen Antworten des Agents.</p>
-                  <p>
-                    Wähle ein repräsentatives Portrait für deinen Assistenten, um das Erlebnis in Web und App konsistent zu gestalten.
-                  </p>
-                </div>
               </div>
             </div>
 
             <div className="rounded-3xl border border-white/10 bg-[#161616]/70 p-8 shadow-2xl">
               <h3 className="text-xl font-semibold text-white">Interface Optionen</h3>
-              <p className="mt-2 text-sm text-white/50">
-                Passe die visuelle Darstellung deines Chat-Erlebnisses an. Alle Änderungen werden live im Preview übernommen.
-              </p>
               <div className="mt-6 space-y-4">
                 <div>
                   <label className="text-xs uppercase tracking-[0.3em] text-white/40">Farbschema</label>
@@ -452,59 +448,6 @@ export function SettingsPage() {
                       </button>
                     ))}
                   </div>
-                </div>
-                <div>
-                  <label className="text-xs uppercase tracking-[0.3em] text-white/40">Chat Hintergrund</label>
-                  <div className="mt-3 space-y-3">
-                    <div className="flex flex-wrap gap-3">
-                      <button
-                        type="button"
-                        onClick={() => backgroundInputRef.current?.click()}
-                        className="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-xs font-semibold text-white/70 transition hover:bg-white/10"
-                      >
-                        <PhotoIcon className="h-4 w-4" /> Hintergrund wählen
-                      </button>
-                      {chatBackground && (
-                        <button
-                          type="button"
-                          onClick={handleBackgroundReset}
-                          className="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-xs font-semibold text-white/60 transition hover:bg-white/10"
-                        >
-                          Zurücksetzen
-                        </button>
-                      )}
-                    </div>
-                    <input
-                      ref={backgroundInputRef}
-                      type="file"
-                      accept="image/*"
-                      onChange={handleBackgroundUpload}
-                      className="hidden"
-                    />
-                    {chatBackground ? (
-                      <div className="overflow-hidden rounded-2xl border border-white/10 bg-black/30">
-                        <img
-                          src={chatBackground}
-                          alt="Aktuelles Chat Hintergrundbild"
-                          className="h-40 w-full object-cover"
-                        />
-                      </div>
-                    ) : (
-                      <p className="text-xs text-white/40">Noch kein Hintergrund festgelegt.</p>
-                    )}
-                  </div>
-                </div>
-                <div>
-                  <label className="text-xs uppercase tracking-[0.3em] text-white/40">Audio Eingabe</label>
-                  <label className="mt-2 flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/70">
-                    Push-to-Talk aktivieren
-                    <input
-                      type="checkbox"
-                      className="accent-brand-gold"
-                      checked={settings.pushToTalkEnabled}
-                      onChange={(event) => updateSetting('pushToTalkEnabled', event.target.checked)}
-                    />
-                  </label>
                 </div>
               </div>
             </div>

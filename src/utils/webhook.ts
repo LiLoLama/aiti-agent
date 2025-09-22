@@ -45,9 +45,18 @@ function buildAuthHeaders(settings: AgentSettings): Record<string, string> {
   return headers;
 }
 
+export interface WebhookRequestOptions {
+  /**
+   * Zeit in Millisekunden, wie lange auf eine Antwort des Webhooks gewartet werden soll,
+   * bevor der Request abgebrochen wird.
+   */
+  responseTimeoutMs?: number;
+}
+
 export async function sendWebhookMessage(
   settings: AgentSettings,
-  payload: WebhookSubmissionPayload
+  payload: WebhookSubmissionPayload,
+  options: WebhookRequestOptions = {}
 ): Promise<WebhookResponse> {
   if (!settings.webhookUrl) {
     throw new Error('Kein Webhook konfiguriert. Hinterlege die URL in den Einstellungen.');
@@ -71,9 +80,10 @@ export async function sendWebhookMessage(
   }
 
   const headers = buildAuthHeaders(settings);
+  const { responseTimeoutMs = 20000 } = options;
 
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 45000);
+  const timeout = window.setTimeout(() => controller.abort(), responseTimeoutMs);
 
   try {
     const response = await fetch(settings.webhookUrl, {
@@ -96,10 +106,14 @@ export async function sendWebhookMessage(
 
     if (isJson) {
       parsedResponse = await response.json();
-      if (settings.responseFormat === 'json') {
-        messageText = JSON.stringify(parsedResponse, null, 2);
-      } else if (parsedResponse && typeof parsedResponse === 'object' && 'message' in parsedResponse) {
-        messageText = String((parsedResponse as Record<string, unknown>).message ?? '');
+      if (parsedResponse && typeof parsedResponse === 'object' && 'message' in parsedResponse) {
+        const messageField = (parsedResponse as Record<string, unknown>).message;
+        messageText =
+          typeof messageField === 'string'
+            ? messageField
+            : JSON.stringify(messageField, null, 2);
+      } else if (typeof parsedResponse === 'string') {
+        messageText = parsedResponse;
       } else {
         messageText = JSON.stringify(parsedResponse, null, 2);
       }
