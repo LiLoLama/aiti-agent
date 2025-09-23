@@ -47,6 +47,7 @@ export function ChatInput({ onSendMessage, pushToTalkEnabled = true }: ChatInput
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const recorderMimeTypeRef = useRef<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
@@ -93,6 +94,7 @@ export function ChatInput({ onSendMessage, pushToTalkEnabled = true }: ChatInput
     setAudioUrl(null);
     setAudioDuration(null);
     recordingStartedAtRef.current = null;
+    recorderMimeTypeRef.current = null;
   };
 
   const stopRecording = () => {
@@ -113,8 +115,10 @@ export function ChatInput({ onSendMessage, pushToTalkEnabled = true }: ChatInput
 
   const handleRecordingStop = () => {
     const chunks = audioChunksRef.current;
-    const blob = chunks.length ? new Blob(chunks, { type: 'audio/webm' }) : null;
+    const mimeType = recorderMimeTypeRef.current ?? 'audio/webm';
+    const blob = chunks.length ? new Blob(chunks, { type: mimeType }) : null;
     audioChunksRef.current = [];
+    recorderMimeTypeRef.current = null;
 
     if (blob) {
       resetAudioState();
@@ -128,6 +132,25 @@ export function ChatInput({ onSendMessage, pushToTalkEnabled = true }: ChatInput
     }
   };
 
+  const requestAudioStream = async () => {
+    if (navigator.mediaDevices?.getUserMedia) {
+      return navigator.mediaDevices.getUserMedia({ audio: true });
+    }
+
+    const legacyGetUserMedia =
+      (navigator as any).webkitGetUserMedia ||
+      (navigator as any).mozGetUserMedia ||
+      (navigator as any).msGetUserMedia;
+
+    if (legacyGetUserMedia) {
+      return new Promise<MediaStream>((resolve, reject) => {
+        legacyGetUserMedia.call(navigator, { audio: true }, resolve, reject);
+      });
+    }
+
+    throw new Error('unsupported');
+  };
+
   const startRecording = async () => {
     if (!pushToTalkEnabled) {
       setRecordingError('Die Audioaufnahme ist in den Einstellungen deaktiviert.');
@@ -138,15 +161,27 @@ export function ChatInput({ onSendMessage, pushToTalkEnabled = true }: ChatInput
       return;
     }
 
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setRecordingError('Dein Browser unterstützt keine Audioaufnahme.');
+    if (typeof window === 'undefined' || typeof window.MediaRecorder === 'undefined') {
+      setRecordingError('Dein Browser unterstützt die benötigte Audioaufnahme-Schnittstelle nicht.');
       return;
     }
 
     try {
       setRecordingError(null);
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
+      const stream = await requestAudioStream();
+
+      const supportedMimeType =
+        typeof MediaRecorder.isTypeSupported === 'function'
+          ? ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/mpeg'].find((candidate) =>
+              MediaRecorder.isTypeSupported(candidate)
+            )
+          : undefined;
+
+      const mediaRecorder = supportedMimeType
+        ? new MediaRecorder(stream, { mimeType: supportedMimeType })
+        : new MediaRecorder(stream);
+
+      recorderMimeTypeRef.current = mediaRecorder.mimeType || supportedMimeType || null;
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
       recordingStartedAtRef.current = Date.now();
@@ -166,7 +201,11 @@ export function ChatInput({ onSendMessage, pushToTalkEnabled = true }: ChatInput
       setIsRecording(true);
     } catch (error) {
       console.error('Audio recording failed', error);
-      setRecordingError('Audioaufnahme konnte nicht gestartet werden. Prüfe die Mikrofonrechte.');
+      setRecordingError(
+        error instanceof Error && error.message === 'unsupported'
+          ? 'Dein Browser unterstützt keine Audioaufnahme.'
+          : 'Audioaufnahme konnte nicht gestartet werden. Prüfe die Mikrofonrechte.'
+      );
     }
   };
 

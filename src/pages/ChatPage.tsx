@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { ChatHeader } from '../components/ChatHeader';
 import { ChatTimeline } from '../components/ChatTimeline';
 import { ChatInput, ChatInputSubmission } from '../components/ChatInput';
-import { MobileNavBar } from '../components/MobileNavBar';
 import { ChatOverviewPanel } from '../components/ChatOverviewPanel';
 import { Chat, ChatAttachment, ChatMessage } from '../data/sampleChats';
 import { ChevronDoubleLeftIcon, ChevronDoubleRightIcon } from '@heroicons/react/24/outline';
@@ -355,6 +354,15 @@ export function ChatPage() {
       setChats(previousChats);
       setActiveChatId(previousActiveChatId);
     }
+  };
+
+  const handleSelectAgent = (agentId: string) => {
+    if (agentId === activeAgentId) {
+      return;
+    }
+
+    setActiveAgentId(agentId);
+    void handleNewChat();
   };
 
   const handleSelectChat = (chatId: string) => {
@@ -786,12 +794,7 @@ export function ChatPage() {
   };
 
   return (
-    <div className="relative flex h-screen min-h-0 flex-col overflow-hidden bg-[#111111] text-white">
-      <MobileNavBar
-        onNewChat={handleNewChat}
-        onToggleOverview={() => setMobileWorkspaceOpen(true)}
-        onOpenProfile={() => navigate('/profile')}
-      />
+    <div className="relative flex min-h-[100dvh] flex-col overflow-hidden bg-[#111111] text-white">
 
       <div className="flex flex-1 overflow-hidden">
         {(!isWorkspaceCollapsed || isMobileWorkspaceOpen) && (
@@ -823,7 +826,7 @@ export function ChatPage() {
             onOpenProfile={() => navigate('/profile')}
             agents={agentSwitcherOptions}
             activeAgentId={selectedAgent?.id ?? null}
-            onSelectAgent={(agentId) => setActiveAgentId(agentId)}
+            onSelectAgent={handleSelectAgent}
             onCreateAgent={handleOpenAgentCreation}
           />
 
@@ -878,9 +881,9 @@ export function ChatPage() {
                   </div>
                 ) : null}
 
-                <div className="px-4 pb-28 pt-2 md:px-8 md:pb-10">
+                <div className="mt-auto border-t border-white/5 bg-[#111111] px-4 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] pt-3 md:px-8 md:pb-10 md:pt-4">
                   <ChatInput onSendMessage={handleSendMessage} />
-                  <p className="mt-3 text-xs text-white/30">
+                  <p className="mt-3 text-center text-xs text-white/40 md:text-left">
                     Audio- und Textnachrichten werden direkt an deinen n8n-Webhook gesendet und als strukturierte Antwort im Stream angezeigt.
                   </p>
                 </div>
@@ -907,8 +910,9 @@ export function ChatPage() {
       </div>
 
       {folderSelectionChatId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-10">
-          <div className="w-full max-w-md space-y-6 rounded-3xl border border-white/10 bg-[#161616]/95 p-6 text-white shadow-glow">
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/70 px-4 py-10">
+          <div className="mx-auto flex min-h-full w-full max-w-md items-center justify-center">
+            <div className="w-full space-y-6 rounded-3xl border border-white/10 bg-[#161616]/95 p-6 text-white shadow-glow">
             <div>
               <h3 className="text-lg font-semibold">Chat in Ordner verschieben</h3>
               <p className="mt-2 text-sm text-white/60">
@@ -983,6 +987,7 @@ export function ChatPage() {
               >
                 Speichern
               </button>
+            </div>
             </div>
           </div>
         </div>

@@ -276,9 +276,11 @@ export function ChatOverviewPanel({
       </aside>
 
       {isMobileOpen && (
-        <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/80 px-4 pb-24 pt-10 lg:hidden">
-          <div className="max-h-[80vh] w-full max-w-lg overflow-hidden rounded-3xl border border-white/10 bg-[#161616]/95 backdrop-blur-xl shadow-glow">
-            {PanelContent}
+        <div className="fixed inset-0 z-40 overflow-y-auto bg-black/80 px-4 pb-24 pt-10 lg:hidden">
+          <div className="mx-auto flex min-h-full w-full max-w-lg items-end justify-center">
+            <div className="relative max-h-[85vh] w-full overflow-hidden rounded-3xl border border-white/10 bg-[#161616]/95 backdrop-blur-xl shadow-glow">
+              <div className="flex max-h-[inherit] flex-col overflow-hidden">{PanelContent}</div>
+            </div>
           </div>
         </div>
       )}
