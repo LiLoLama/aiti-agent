@@ -872,9 +872,9 @@ export function ChatPage() {
                   </div>
                 ) : null}
 
-                <div className="px-4 pb-28 pt-2 md:px-8 md:pb-10">
+                <div className="mt-auto border-t border-white/5 bg-[#111111] px-4 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] pt-3 md:px-8 md:pb-10 md:pt-4">
                   <ChatInput onSendMessage={handleSendMessage} />
-                  <p className="mt-3 text-xs text-white/30">
+                  <p className="mt-3 text-center text-xs text-white/40 md:text-left">
                     Audio- und Textnachrichten werden direkt an deinen n8n-Webhook gesendet und als strukturierte Antwort im Stream angezeigt.
                   </p>
                 </div>
