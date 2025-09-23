@@ -515,11 +515,7 @@ export function ProfilePage() {
                     />
                   </div>
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                      <p className="text-xs uppercase tracking-[0.35em] text-white/40">Rolle</p>
-                      <p className="mt-2 text-sm font-semibold text-white">{currentUser.role === 'admin' ? 'Administrator' : 'Nutzer'}</p>
-                    </div>
-                    <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                    <div className="rounded-2xl border border-white/10 bg-white/5 p-4 sm:col-span-2">
                       <p className="text-xs uppercase tracking-[0.35em] text-white/40">Status</p>
                       <p className="mt-2 inline-flex items-center gap-2 text-sm font-semibold">
                         {currentUser.isActive ? (
@@ -533,23 +529,9 @@ export function ProfilePage() {
                         )}
                       </p>
                     </div>
-                    <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                    <div className="rounded-2xl border border-white/10 bg-white/5 p-4 sm:col-span-2">
                       <p className="text-xs uppercase tracking-[0.35em] text-white/40">Agents erstellt</p>
                       <p className="mt-2 text-sm font-semibold text-white">{userAgents.length}</p>
-                    </div>
-                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                    <p className="text-xs uppercase tracking-[0.35em] text-white/40">E-Mail</p>
-                    <p className="mt-2 inline-flex items-center gap-2 text-sm font-semibold">
-                      {currentUser.emailVerified ? (
-                        <>
-                            <CheckCircleIcon className="h-4 w-4 text-emerald-400" /> Verifiziert
-                          </>
-                        ) : (
-                          <>
-                            <XCircleIcon className="h-4 w-4 text-amber-400" /> Ausstehend
-                          </>
-                        )}
-                      </p>
                     </div>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
@@ -690,9 +672,6 @@ export function ProfilePage() {
                   <header>
                     <p className="text-xs uppercase tracking-[0.35em] text-white/40">Team</p>
                     <h2 className="mt-2 text-2xl font-semibold">Deine Agents</h2>
-                    <p className="mt-2 text-sm text-white/60">
-                      Baue ein Team aus spezialisierten Agents und optimiere jeden für eine Aufgabe.
-                    </p>
                   </header>
                   {agentManagementContent}
                 </>
