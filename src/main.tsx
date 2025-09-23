@@ -14,7 +14,7 @@ if (typeof window !== 'undefined') {
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
-    <BrowserRouter>
+    <BrowserRouter basename="/agent">
       <AuthProvider>
         <App />
       </AuthProvider>
