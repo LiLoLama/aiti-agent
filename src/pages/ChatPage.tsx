@@ -5,22 +5,28 @@ import { ChatTimeline } from '../components/ChatTimeline';
 import { ChatInput, ChatInputSubmission } from '../components/ChatInput';
 import { MobileNavBar } from '../components/MobileNavBar';
 import { ChatOverviewPanel } from '../components/ChatOverviewPanel';
-import { sampleChats, Chat, ChatAttachment, ChatMessage } from '../data/sampleChats';
+import { Chat, ChatAttachment, ChatMessage } from '../data/sampleChats';
 import { ChevronDoubleLeftIcon, ChevronDoubleRightIcon } from '@heroicons/react/24/outline';
 
 import agentAvatar from '../assets/agent-avatar.png';
 import userAvatar from '../assets/default-user.svg';
 import { AgentSettings } from '../types/settings';
-import {
-  loadAgentSettings,
-  loadChats,
-  loadCustomFolders,
-  saveChats,
-  saveCustomFolders
-} from '../utils/storage';
+import { loadAgentSettings } from '../utils/storage';
 import { sendWebhookMessage } from '../utils/webhook';
 import { applyColorScheme } from '../utils/theme';
 import { useAuth } from '../context/AuthContext';
+import {
+  createChatForProfile,
+  createFolderForProfile,
+  deleteChatById,
+  deleteFolderById,
+  detachFolderFromChats,
+  fetchChatsForProfile,
+  fetchFoldersForProfile,
+  mapChatRowToChat,
+  updateChatRow,
+  type FolderRecord
+} from '../services/chatService';
 
 const formatTimestamp = (date: Date) =>
   date.toLocaleTimeString('de-DE', {
@@ -49,37 +55,54 @@ export function ChatPage() {
   const navigate = useNavigate();
   const { currentUser } = useAuth();
   const [settings, setSettings] = useState<AgentSettings>(() => loadAgentSettings());
-  const [chats, setChats] = useState<Chat[]>(() => loadChats(sampleChats));
-  const [activeChatId, setActiveChatId] = useState<string>(() => {
-    const initialChats = loadChats(sampleChats);
-    return initialChats[0]?.id ?? '';
-  });
+  const [chats, setChats] = useState<Chat[]>([]);
+  const [activeChatId, setActiveChatId] = useState<string>('');
   const [isWorkspaceCollapsed, setWorkspaceCollapsed] = useState(false);
   const [isMobileWorkspaceOpen, setMobileWorkspaceOpen] = useState(false);
-  const [customFolders, setCustomFolders] = useState<string[]>(() => loadCustomFolders());
+  const [folders, setFolders] = useState<FolderRecord[]>([]);
+  const [isLoadingRemoteData, setIsLoadingRemoteData] = useState(false);
+  const [remoteSyncError, setRemoteSyncError] = useState<string | null>(null);
+  const [folderLoadError, setFolderLoadError] = useState<string | null>(null);
   const [folderSelectionChatId, setFolderSelectionChatId] = useState<string | null>(null);
   const [selectedExistingFolder, setSelectedExistingFolder] = useState<string>('__none__');
   const [newFolderName, setNewFolderName] = useState('');
   const [pendingResponseChatId, setPendingResponseChatId] = useState<string | null>(null);
   const [activeAgentId, setActiveAgentId] = useState<string | null>(null);
+  const hasRemoteProfile = currentUser?.hasRemoteProfile ?? false;
+  const requiresRemoteProfileSetup = Boolean(currentUser) && !hasRemoteProfile;
+  const remoteProfileSetupMessage =
+    'Dein Supabase-Profil konnte nicht erstellt werden. Bitte ergänze passende Policies für die Tabelle "profiles", damit Chats und Ordner gespeichert werden können.';
 
   const activeChat = useMemo(
     () => chats.find((chat) => chat.id === activeChatId) ?? chats[0],
     [chats, activeChatId]
   );
 
+  const folderNames = useMemo(
+    () => [...folders].map((folder) => folder.name).sort((a, b) => a.localeCompare(b)),
+    [folders]
+  );
+
+  const folderNameMap = useMemo(() => {
+    const map = new Map<string, FolderRecord>();
+    folders.forEach((folder) => {
+      map.set(folder.name, folder);
+    });
+    return map;
+  }, [folders]);
+
   const availableFolders = useMemo(() => {
     return Array.from(
       new Set(
         [
-          ...customFolders,
+          ...folderNames,
           ...chats
             .map((chat) => chat.folder)
             .filter((folder): folder is string => Boolean(folder))
         ]
       )
     ).sort((a, b) => a.localeCompare(b));
-  }, [customFolders, chats]);
+  }, [folderNames, chats]);
 
   const defaultAgentAvatar = useMemo(
     () => settings.agentAvatarImage ?? agentAvatar,
@@ -156,22 +179,141 @@ export function ChatPage() {
     applyColorScheme(settings.colorScheme);
   }, [settings.colorScheme]);
 
-  useEffect(() => {
-    saveChats(chats);
-  }, [chats]);
+  const ensureRemoteProfile = () => {
+    if (!currentUser?.hasRemoteProfile) {
+      window.alert(remoteProfileSetupMessage);
+      return false;
+    }
+
+    return true;
+  };
 
   useEffect(() => {
-    saveCustomFolders(customFolders);
-  }, [customFolders]);
+    if (!currentUser) {
+      setChats([]);
+      setFolders([]);
+      setActiveChatId('');
+      setIsLoadingRemoteData(false);
+      setRemoteSyncError(null);
+      return;
+    }
+
+    if (!currentUser.hasRemoteProfile) {
+      setChats([]);
+      setFolders([]);
+      setActiveChatId('');
+      setIsLoadingRemoteData(false);
+      setRemoteSyncError(remoteProfileSetupMessage);
+      return;
+    }
+
+    let isSubscribed = true;
+
+    const loadRemoteData = async () => {
+      setIsLoadingRemoteData(true);
+      setRemoteSyncError(null);
+      setFolderLoadError(null);
+
+      try {
+        const chatRows = await fetchChatsForProfile(currentUser.id);
+
+        if (!isSubscribed) {
+          return;
+        }
+
+        let folderRows: FolderRecord[] = [];
+
+        try {
+          folderRows = await fetchFoldersForProfile(currentUser.id);
+        } catch (folderError) {
+          console.error('Ordner konnten nicht geladen werden.', folderError);
+          if (isSubscribed) {
+            setFolderLoadError('Ordner konnten nicht geladen werden.');
+          }
+        }
+
+        if (!isSubscribed) {
+          return;
+        }
+
+        const folderMap = new Map(folderRows.map((folder) => [folder.id, folder] as const));
+        let normalizedChats = chatRows.map((row) => mapChatRowToChat(row, folderMap));
+
+        if (normalizedChats.length === 0) {
+          const timestamp = new Date();
+          const userName = (currentUser.name ?? settings.profileName ?? '').trim();
+          const greeting = userName
+            ? `Hallo ${userName}! Wie kann ich dir heute helfen?`
+            : 'Hallo! Wie kann ich dir heute helfen?';
+
+          const initialChat: Chat = {
+            id: crypto.randomUUID(),
+            name: 'Neuer Chat',
+            lastUpdated: formatTimestamp(timestamp),
+            preview: 'Beschreibe dein nächstes Projekt und starte den AI Agent.',
+            messages: [
+              {
+                id: crypto.randomUUID(),
+                author: 'agent',
+                content: greeting,
+                timestamp: formatTimestamp(timestamp)
+              }
+            ]
+          };
+
+          await createChatForProfile(currentUser.id, initialChat);
+          normalizedChats = [initialChat];
+        }
+
+        if (!isSubscribed) {
+          return;
+        }
+
+        const sortedFolders = [...folderRows].sort((a, b) => a.name.localeCompare(b.name));
+        setFolders(sortedFolders);
+        setChats(normalizedChats);
+        setActiveChatId((currentId) => {
+          if (currentId && normalizedChats.some((chat) => chat.id === currentId)) {
+            return currentId;
+          }
+
+          return normalizedChats[0]?.id ?? '';
+        });
+      } catch (error) {
+        console.error('Chats konnten nicht geladen werden.', error);
+        if (isSubscribed) {
+          setRemoteSyncError('Chats konnten nicht geladen werden.');
+        }
+      } finally {
+        if (isSubscribed) {
+          setIsLoadingRemoteData(false);
+        }
+      }
+    };
+
+    loadRemoteData();
+
+    return () => {
+      isSubscribed = false;
+    };
+  }, [currentUser?.hasRemoteProfile, currentUser?.id, currentUser?.name, remoteProfileSetupMessage, settings.profileName]);
 
   const handleOpenAgentCreation = () => {
     setMobileWorkspaceOpen(false);
     navigate('/profile', { state: { openAgentModal: 'create' } });
   };
 
-  const handleNewChat = () => {
+  const handleNewChat = async () => {
+    if (!currentUser) {
+      return;
+    }
+
+    if (!ensureRemoteProfile()) {
+      return;
+    }
+
     const timestamp = new Date();
-    const userName = settings.profileName?.trim();
+    const userName = (currentUser?.name ?? settings.profileName ?? '').trim();
     const greeting = userName
       ? `Hallo ${userName}! Wie kann ich dir heute helfen?`
       : 'Hallo! Wie kann ich dir heute helfen?';
@@ -197,10 +339,22 @@ export function ChatPage() {
       ]
     };
 
-    setChats((prev) => [newChat, ...prev]);
+    const previousChats = chats;
+    const previousActiveChatId = activeChatId;
+
+    setChats([newChat, ...previousChats]);
     setActiveChatId(newChat.id);
     setWorkspaceCollapsed(false);
     setMobileWorkspaceOpen(false);
+
+    try {
+      await createChatForProfile(currentUser.id, newChat);
+    } catch (error) {
+      console.error('Chat konnte nicht erstellt werden.', error);
+      window.alert('Chat konnte nicht erstellt werden. Bitte versuche es erneut.');
+      setChats(previousChats);
+      setActiveChatId(previousActiveChatId);
+    }
   };
 
   const handleSelectChat = (chatId: string) => {
@@ -208,9 +362,13 @@ export function ChatPage() {
     setMobileWorkspaceOpen(false);
   };
 
-  const handleRenameChat = (chatId: string) => {
+  const handleRenameChat = async (chatId: string) => {
     const chatToRename = chats.find((chat) => chat.id === chatId);
     if (!chatToRename) {
+      return;
+    }
+
+    if (!ensureRemoteProfile()) {
       return;
     }
 
@@ -219,21 +377,34 @@ export function ChatPage() {
       return;
     }
 
-    setChats((prev) =>
-      prev.map((chat) =>
-        chat.id === chatId
-          ? {
-              ...chat,
-              name: newName
-            }
-          : chat
-      )
+    const previousChats = chats;
+    const renamedChats = chats.map((chat) =>
+      chat.id === chatId
+        ? {
+            ...chat,
+            name: newName
+          }
+        : chat
     );
+
+    setChats(renamedChats);
+
+    try {
+      await updateChatRow(chatId, { title: newName });
+    } catch (error) {
+      console.error('Chat konnte nicht umbenannt werden.', error);
+      window.alert('Chat konnte nicht umbenannt werden. Bitte versuche es erneut.');
+      setChats(previousChats);
+    }
   };
 
-  const handleDeleteChat = (chatId: string) => {
+  const handleDeleteChat = async (chatId: string) => {
     const chatToDelete = chats.find((chat) => chat.id === chatId);
     if (!chatToDelete) {
+      return;
+    }
+
+    if (!ensureRemoteProfile()) {
       return;
     }
 
@@ -245,31 +416,55 @@ export function ChatPage() {
       return;
     }
 
-    setChats((prev) => prev.filter((chat) => chat.id !== chatId));
+    const previousChats = chats;
+    const previousActiveChatId = activeChatId;
+    const remainingChats = chats.filter((chat) => chat.id !== chatId);
 
-    setActiveChatId((currentId) => {
-      if (currentId !== chatId) {
-        return currentId;
-      }
+    setChats(remainingChats);
+    if (previousActiveChatId === chatId) {
+      setActiveChatId(remainingChats[0]?.id ?? '');
+    }
 
-      const remainingChats = chats.filter((chat) => chat.id !== chatId);
-      return remainingChats[0]?.id ?? '';
-    });
+    try {
+      await deleteChatById(chatId);
+    } catch (error) {
+      console.error('Chat konnte nicht gelöscht werden.', error);
+      window.alert('Chat konnte nicht gelöscht werden. Bitte versuche es erneut.');
+      setChats(previousChats);
+      setActiveChatId(previousActiveChatId);
+    }
   };
 
-  const handleCreateFolder = () => {
+  const handleCreateFolder = async () => {
+    if (!currentUser) {
+      return;
+    }
+
+    if (!ensureRemoteProfile()) {
+      return;
+    }
+
     const folderName = window.prompt('Wie soll der neue Ordner heißen?')?.trim();
     if (!folderName) {
       return;
     }
 
-    setCustomFolders((prev) => {
-      if (prev.includes(folderName)) {
-        return prev;
-      }
+    if (
+      folders.some(
+        (folder) => folder.name.localeCompare(folderName, undefined, { sensitivity: 'accent' }) === 0
+      )
+    ) {
+      window.alert('Ein Ordner mit diesem Namen existiert bereits.');
+      return;
+    }
 
-      return [...prev, folderName];
-    });
+    try {
+      const newFolder = await createFolderForProfile(currentUser.id, folderName);
+      setFolders((prev) => [...prev, newFolder].sort((a, b) => a.name.localeCompare(b.name)));
+    } catch (error) {
+      console.error('Ordner konnte nicht erstellt werden.', error);
+      window.alert('Ordner konnte nicht erstellt werden. Bitte versuche es erneut.');
+    }
   };
 
   const handleAssignChatFolder = (chatId: string) => {
@@ -289,51 +484,132 @@ export function ChatPage() {
     setNewFolderName('');
   };
 
-  const handleConfirmFolderSelection = () => {
-    if (!folderSelectionChatId) {
+  const handleConfirmFolderSelection = async () => {
+    if (!folderSelectionChatId || !currentUser) {
+      return;
+    }
+
+    if (!ensureRemoteProfile()) {
       return;
     }
 
     const trimmedNewFolder = newFolderName.trim();
     const selectedFolderName =
       selectedExistingFolder === '__none__' ? '' : selectedExistingFolder.trim();
-    const targetFolder = trimmedNewFolder || selectedFolderName;
 
-    setChats((prev) =>
-      prev.map((chat) =>
-        chat.id === folderSelectionChatId
-          ? {
-              ...chat,
-              folder: targetFolder || undefined
-            }
-          : chat
-      )
-    );
+    let targetFolderId: string | null = null;
+    let targetFolderName: string | undefined;
 
-    if (trimmedNewFolder) {
-      setCustomFolders((prev) => {
-        if (prev.includes(trimmedNewFolder)) {
-          return prev;
+    try {
+      if (trimmedNewFolder) {
+        const existing = folders.find(
+          (folder) => folder.name.localeCompare(trimmedNewFolder, undefined, { sensitivity: 'accent' }) === 0
+        );
+
+        if (existing) {
+          targetFolderId = existing.id;
+          targetFolderName = existing.name;
+        } else {
+          const newFolder = await createFolderForProfile(currentUser.id, trimmedNewFolder);
+          targetFolderId = newFolder.id;
+          targetFolderName = newFolder.name;
+          setFolders((prev) => [...prev, newFolder].sort((a, b) => a.name.localeCompare(b.name)));
+        }
+      } else if (selectedFolderName) {
+        const existing = folderNameMap.get(selectedFolderName);
+        if (!existing) {
+          window.alert('Der ausgewählte Ordner existiert nicht mehr.');
+          return;
         }
 
-        return [...prev, trimmedNewFolder].sort((a, b) => a.localeCompare(b));
-      });
-    } else if (targetFolder) {
-      setCustomFolders((prev) => {
-        if (prev.includes(targetFolder)) {
-          return prev;
-        }
+        targetFolderId = existing.id;
+        targetFolderName = existing.name;
+      }
 
-        return [...prev, targetFolder].sort((a, b) => a.localeCompare(b));
-      });
+      await updateChatRow(folderSelectionChatId, { folderId: targetFolderId });
+
+      setChats((prev) =>
+        prev.map((chat) =>
+          chat.id === folderSelectionChatId
+            ? {
+                ...chat,
+                folder: targetFolderName,
+                folderId: targetFolderId ?? undefined
+              }
+            : chat
+        )
+      );
+
+      handleCloseFolderSelection();
+    } catch (error) {
+      console.error('Ordnerzuweisung fehlgeschlagen.', error);
+      window.alert('Ordnerzuweisung fehlgeschlagen. Bitte versuche es erneut.');
+    }
+  };
+
+  const handleDeleteFolder = async (folderName: string) => {
+    if (!currentUser) {
+      return;
     }
 
-    handleCloseFolderSelection();
+    if (!ensureRemoteProfile()) {
+      return;
+    }
+
+    const folderRecord = folderNameMap.get(folderName);
+    if (!folderRecord) {
+      window.alert('Der ausgewählte Ordner ist nicht mehr verfügbar.');
+      return;
+    }
+
+    const folderChats = chats.filter(
+      (chat) => chat.folderId === folderRecord.id || chat.folder === folderName
+    );
+
+    const shouldDelete = window.confirm(
+      folderChats.length > 0
+        ? `Soll der Ordner "${folderName}" gelöscht werden? Die enthaltenen Chats bleiben erhalten und werden keinem Ordner mehr zugeordnet.`
+        : `Soll der Ordner "${folderName}" gelöscht werden?`
+    );
+
+    if (!shouldDelete) {
+      return;
+    }
+
+    const previousChats = chats;
+    const previousFolders = folders;
+
+    const detachedChats = chats.map((chat) =>
+      chat.folderId === folderRecord.id || chat.folder === folderName
+        ? {
+            ...chat,
+            folder: undefined,
+            folderId: undefined
+          }
+        : chat
+    );
+
+    setChats(detachedChats);
+    setFolders((prev) => prev.filter((entry) => entry.id !== folderRecord.id));
+
+    try {
+      await detachFolderFromChats(currentUser.id, folderRecord.id);
+      await deleteFolderById(folderRecord.id);
+    } catch (error) {
+      console.error('Ordner konnte nicht gelöscht werden.', error);
+      window.alert('Ordner konnte nicht gelöscht werden. Bitte versuche es erneut.');
+      setChats(previousChats);
+      setFolders(previousFolders);
+    }
   };
 
   const handleSendMessage = async (submission: ChatInputSubmission) => {
     const currentChat = activeChat;
     if (!currentChat) {
+      return;
+    }
+
+    if (!ensureRemoteProfile()) {
       return;
     }
 
@@ -385,24 +661,41 @@ export function ChatPage() {
       attachments: attachments.length ? attachments : undefined
     };
 
-    const updatedPreview = trimmedText
+    const previewSource = trimmedText
       ? trimmedText
       : audioAttachments.length
       ? 'Audio Nachricht'
       : attachments[0]?.name ?? 'Neue Nachricht';
+    const previewText = toPreview(previewSource);
 
-    const updatedChat: Chat = {
+    const chatAfterUserMessage: Chat = {
       ...currentChat,
       messages: [...currentChat.messages, userMessage],
       lastUpdated: formatTimestamp(now),
-      preview: toPreview(updatedPreview)
+      preview: previewText
     };
 
+    const previousChats = chats;
+
     setChats((prev) =>
-      prev.map((chat) => (chat.id === updatedChat.id ? updatedChat : chat))
+      prev.map((chat) => (chat.id === chatAfterUserMessage.id ? chatAfterUserMessage : chat))
     );
 
-    setPendingResponseChatId(updatedChat.id);
+    setPendingResponseChatId(chatAfterUserMessage.id);
+
+    try {
+      await updateChatRow(chatAfterUserMessage.id, {
+        messages: chatAfterUserMessage.messages,
+        summary: chatAfterUserMessage.preview,
+        lastMessageAt: now.toISOString()
+      });
+    } catch (error) {
+      console.error('Nachricht konnte nicht gespeichert werden.', error);
+      window.alert('Deine Nachricht konnte nicht gespeichert werden. Bitte versuche es erneut.');
+      setChats(previousChats);
+      setPendingResponseChatId(null);
+      return;
+    }
 
     const effectiveWebhookUrl = selectedAgent?.webhookUrl?.trim() || settings.webhookUrl;
     const webhookSettings: AgentSettings = {
@@ -412,10 +705,10 @@ export function ChatPage() {
 
     try {
       const webhookResponse = await sendWebhookMessage(webhookSettings, {
-        chatId: updatedChat.id,
+        chatId: chatAfterUserMessage.id,
         message: trimmedText,
         messageId: userMessage.id,
-        history: updatedChat.messages,
+        history: chatAfterUserMessage.messages,
         attachments: files,
         audio: submission.audio
           ? {
@@ -432,19 +725,28 @@ export function ChatPage() {
         content: webhookResponse.message,
         timestamp: formatTimestamp(responseDate)
       };
+      const agentPreview = toPreview(agentMessage.content);
+      const messagesWithAgent = [...chatAfterUserMessage.messages, agentMessage];
+      const chatAfterAgent: Chat = {
+        ...chatAfterUserMessage,
+        messages: messagesWithAgent,
+        preview: agentPreview,
+        lastUpdated: formatTimestamp(responseDate)
+      };
 
       setChats((prev) =>
-        prev.map((chat) =>
-          chat.id === updatedChat.id
-            ? {
-                ...chat,
-                messages: [...chat.messages, agentMessage],
-                preview: toPreview(agentMessage.content),
-                lastUpdated: formatTimestamp(responseDate)
-              }
-            : chat
-        )
+        prev.map((chat) => (chat.id === chatAfterAgent.id ? chatAfterAgent : chat))
       );
+
+      try {
+        await updateChatRow(chatAfterAgent.id, {
+          messages: messagesWithAgent,
+          summary: agentPreview,
+          lastMessageAt: responseDate.toISOString()
+        });
+      } catch (persistError) {
+        console.error('Antwort konnte nicht gespeichert werden.', persistError);
+      }
     } catch (error) {
       const errorDate = new Date();
       const agentErrorMessage: ChatMessage = {
@@ -456,21 +758,29 @@ export function ChatPage() {
             : 'Unbekannter Fehler beim Webhook-Aufruf.',
         timestamp: formatTimestamp(errorDate)
       };
+      const errorPreview = toPreview(agentErrorMessage.content);
+      const messagesWithError = [...chatAfterUserMessage.messages, agentErrorMessage];
+      const chatWithError: Chat = {
+        ...chatAfterUserMessage,
+        messages: messagesWithError,
+        preview: errorPreview,
+        lastUpdated: formatTimestamp(errorDate)
+      };
 
       setChats((prev) =>
-        prev.map((chat) =>
-          chat.id === updatedChat.id
-            ? {
-                ...chat,
-                messages: [...chat.messages, agentErrorMessage],
-                preview: toPreview(agentErrorMessage.content),
-                lastUpdated: formatTimestamp(errorDate)
-              }
-            : chat
-        )
+        prev.map((chat) => (chat.id === chatWithError.id ? chatWithError : chat))
       );
-    }
-    finally {
+
+      try {
+        await updateChatRow(chatWithError.id, {
+          messages: messagesWithError,
+          summary: errorPreview,
+          lastMessageAt: errorDate.toISOString()
+        });
+      } catch (persistError) {
+        console.error('Fehlernachricht konnte nicht gespeichert werden.', persistError);
+      }
+    } finally {
       setPendingResponseChatId(null);
     }
   };
@@ -495,8 +805,9 @@ export function ChatPage() {
             onCreateFolder={handleCreateFolder}
             onRenameChat={handleRenameChat}
             onDeleteChat={handleDeleteChat}
-            customFolders={customFolders}
+            customFolders={folderNames}
             onAssignChatFolder={handleAssignChatFolder}
+            onDeleteFolder={handleDeleteFolder}
           />
         )}
 
@@ -516,6 +827,17 @@ export function ChatPage() {
             onCreateAgent={handleOpenAgentCreation}
           />
 
+          {remoteSyncError && (
+            <div className="mx-4 mt-4 rounded-2xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200 md:mx-6">
+              {remoteSyncError}
+            </div>
+          )}
+          {folderLoadError && (
+            <div className="mx-4 mt-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100 md:mx-6">
+              {folderLoadError}
+            </div>
+          )}
+
           <div className="hidden px-4 pt-4 md:px-6 lg:flex">
             <button
               onClick={() => setWorkspaceCollapsed((prev) => !prev)}
@@ -531,16 +853,30 @@ export function ChatPage() {
           </div>
 
           <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
-            {hasAgents ? (
+            {requiresRemoteProfileSetup ? (
+              <div className="flex flex-1 items-center justify-center px-6 text-sm text-white/70">
+                <div className="w-full max-w-xl rounded-3xl border border-amber-400/20 bg-amber-500/10 p-6 text-center text-amber-100">
+                  <h2 className="text-lg font-semibold text-amber-200">Supabase-Setup erforderlich</h2>
+                  <p className="mt-3 text-sm text-amber-100/80">{remoteProfileSetupMessage}</p>
+                  <p className="mt-3 text-xs uppercase tracking-[0.3em] text-amber-200/60">
+                    Ergänze eine Policy für "profiles" und lade die Seite neu.
+                  </p>
+                </div>
+              </div>
+            ) : hasAgents ? (
               <>
-                {activeChat && (
+                {activeChat ? (
                   <ChatTimeline
                     chat={activeChat}
                     agentAvatar={activeAgentAvatar}
                     userAvatar={accountAvatar}
                     isAwaitingResponse={pendingResponseChatId === activeChat.id}
                   />
-                )}
+                ) : isLoadingRemoteData ? (
+                  <div className="flex flex-1 items-center justify-center px-6 text-sm text-white/60">
+                    Chats werden geladen …
+                  </div>
+                ) : null}
 
                 <div className="px-4 pb-28 pt-2 md:px-8 md:pb-10">
                   <ChatInput onSendMessage={handleSendMessage} />
