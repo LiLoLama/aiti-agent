@@ -53,6 +53,7 @@ export function ChatInput({ onSendMessage, pushToTalkEnabled = true }: ChatInput
   const [audioDuration, setAudioDuration] = useState<number | null>(null);
   const recordingStartedAtRef = useRef<number | null>(null);
   const [recordingError, setRecordingError] = useState<string | null>(null);
+  const recorderMimeTypeRef = useRef<string>('');
 
   const canSubmit = useMemo(() => {
     return Boolean(message.trim() || selectedFiles.length > 0 || audioBlob);
@@ -93,6 +94,7 @@ export function ChatInput({ onSendMessage, pushToTalkEnabled = true }: ChatInput
     setAudioUrl(null);
     setAudioDuration(null);
     recordingStartedAtRef.current = null;
+    recorderMimeTypeRef.current = '';
   };
 
   const stopRecording = () => {
@@ -113,7 +115,8 @@ export function ChatInput({ onSendMessage, pushToTalkEnabled = true }: ChatInput
 
   const handleRecordingStop = () => {
     const chunks = audioChunksRef.current;
-    const blob = chunks.length ? new Blob(chunks, { type: 'audio/webm' }) : null;
+    const mimeType = recorderMimeTypeRef.current || 'audio/webm';
+    const blob = chunks.length ? new Blob(chunks, { type: mimeType }) : null;
     audioChunksRef.current = [];
 
     if (blob) {
@@ -128,6 +131,56 @@ export function ChatInput({ onSendMessage, pushToTalkEnabled = true }: ChatInput
     }
   };
 
+  const requestAudioStream = async () => {
+    if (navigator.mediaDevices?.getUserMedia) {
+      return navigator.mediaDevices.getUserMedia({ audio: true });
+    }
+
+    const extendedNavigator = navigator as Navigator & {
+      webkitGetUserMedia?: (
+        constraints: MediaStreamConstraints,
+        onSuccess: (stream: MediaStream) => void,
+        onError: (error: unknown) => void
+      ) => void;
+      mozGetUserMedia?: (
+        constraints: MediaStreamConstraints,
+        onSuccess: (stream: MediaStream) => void,
+        onError: (error: unknown) => void
+      ) => void;
+    };
+
+    const legacyGetUserMedia = extendedNavigator.webkitGetUserMedia ?? extendedNavigator.mozGetUserMedia;
+
+    if (legacyGetUserMedia) {
+      return new Promise<MediaStream>((resolve, reject) => {
+        legacyGetUserMedia.call(
+          navigator,
+          { audio: true },
+          (stream: MediaStream) => resolve(stream),
+          (error: unknown) => reject(error)
+        );
+      });
+    }
+
+    throw new Error('unsupported');
+  };
+
+  const resolveSupportedMimeType = () => {
+    if (typeof MediaRecorder === 'undefined') {
+      return '';
+    }
+
+    const candidates = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/webm'];
+
+    for (const candidate of candidates) {
+      if (MediaRecorder.isTypeSupported(candidate)) {
+        return candidate;
+      }
+    }
+
+    return '';
+  };
+
   const startRecording = async () => {
     if (!pushToTalkEnabled) {
       setRecordingError('Die Audioaufnahme ist in den Einstellungen deaktiviert.');
@@ -138,15 +191,17 @@ export function ChatInput({ onSendMessage, pushToTalkEnabled = true }: ChatInput
       return;
     }
 
-    if (!navigator.mediaDevices?.getUserMedia) {
+    if (typeof MediaRecorder === 'undefined') {
       setRecordingError('Dein Browser unterstützt keine Audioaufnahme.');
       return;
     }
 
     try {
       setRecordingError(null);
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
+      const stream = await requestAudioStream();
+      const mimeType = resolveSupportedMimeType();
+      const mediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      recorderMimeTypeRef.current = mediaRecorder.mimeType || mimeType;
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
       recordingStartedAtRef.current = Date.now();
@@ -166,7 +221,11 @@ export function ChatInput({ onSendMessage, pushToTalkEnabled = true }: ChatInput
       setIsRecording(true);
     } catch (error) {
       console.error('Audio recording failed', error);
-      setRecordingError('Audioaufnahme konnte nicht gestartet werden. Prüfe die Mikrofonrechte.');
+      if (error instanceof Error && error.message === 'unsupported') {
+        setRecordingError('Dein Browser unterstützt keine Audioaufnahme.');
+      } else {
+        setRecordingError('Audioaufnahme konnte nicht gestartet werden. Prüfe die Mikrofonrechte.');
+      }
     }
   };
 

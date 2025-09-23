@@ -12,24 +12,24 @@ export function MobileNavBar({ onNewChat, onToggleOverview, onOpenProfile }: Mob
       <div className="mx-auto flex max-w-3xl items-center justify-around px-6 py-3 text-white/70">
         <button
           onClick={onToggleOverview}
-          className="flex flex-col items-center text-xs font-medium gap-1"
+          className="flex flex-col items-center gap-1 text-xs font-medium"
         >
           <Squares2X2Icon className="h-6 w-6" />
-          Übersicht
+          <span className="sr-only">Übersicht</span>
         </button>
         <button
           onClick={onNewChat}
           className="flex -translate-y-6 flex-col items-center rounded-full bg-gradient-to-r from-brand-gold via-brand-deep to-brand-gold p-4 text-xs font-semibold text-surface-base shadow-glow"
         >
           <PlusCircleIcon className="h-6 w-6" />
-          Neu
+          <span className="sr-only">Neuer Chat</span>
         </button>
         <button
           onClick={onOpenProfile}
-          className="flex flex-col items-center text-xs font-medium gap-1"
+          className="flex flex-col items-center gap-1 text-xs font-medium"
         >
           <UserCircleIcon className="h-6 w-6" />
-          Profil
+          <span className="sr-only">Profil</span>
         </button>
       </div>
     </nav>

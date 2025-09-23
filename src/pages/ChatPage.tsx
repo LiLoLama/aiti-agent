@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChatHeader } from '../components/ChatHeader';
 import { ChatTimeline } from '../components/ChatTimeline';
@@ -72,6 +72,11 @@ export function ChatPage() {
   const requiresRemoteProfileSetup = Boolean(currentUser) && !hasRemoteProfile;
   const remoteProfileSetupMessage =
     'Dein Supabase-Profil konnte nicht erstellt werden. Bitte ergänze passende Policies für die Tabelle "profiles", damit Chats und Ordner gespeichert werden können.';
+  const hasShownMissingProfileWarningRef = useRef(false);
+
+  useEffect(() => {
+    hasShownMissingProfileWarningRef.current = false;
+  }, [currentUser?.id]);
 
   const activeChat = useMemo(
     () => chats.find((chat) => chat.id === activeChatId) ?? chats[0],
@@ -179,9 +184,13 @@ export function ChatPage() {
     applyColorScheme(settings.colorScheme);
   }, [settings.colorScheme]);
 
-  const ensureRemoteProfile = () => {
+  const ensureRemoteProfile = (options?: { silent?: boolean }) => {
     if (!currentUser?.hasRemoteProfile) {
-      window.alert(remoteProfileSetupMessage);
+      if (!options?.silent && !hasShownMissingProfileWarningRef.current) {
+        window.alert(remoteProfileSetupMessage);
+        hasShownMissingProfileWarningRef.current = true;
+      }
+
       return false;
     }
 
@@ -308,10 +317,6 @@ export function ChatPage() {
       return;
     }
 
-    if (!ensureRemoteProfile()) {
-      return;
-    }
-
     const timestamp = new Date();
     const userName = (currentUser?.name ?? settings.profileName ?? '').trim();
     const greeting = userName
@@ -347,13 +352,17 @@ export function ChatPage() {
     setWorkspaceCollapsed(false);
     setMobileWorkspaceOpen(false);
 
-    try {
-      await createChatForProfile(currentUser.id, newChat);
-    } catch (error) {
-      console.error('Chat konnte nicht erstellt werden.', error);
-      window.alert('Chat konnte nicht erstellt werden. Bitte versuche es erneut.');
-      setChats(previousChats);
-      setActiveChatId(previousActiveChatId);
+    const canPersistRemotely = ensureRemoteProfile();
+
+    if (canPersistRemotely) {
+      try {
+        await createChatForProfile(currentUser.id, newChat);
+      } catch (error) {
+        console.error('Chat konnte nicht erstellt werden.', error);
+        window.alert('Chat konnte nicht erstellt werden. Bitte versuche es erneut.');
+        setChats(previousChats);
+        setActiveChatId(previousActiveChatId);
+      }
     }
   };
 
@@ -609,12 +618,9 @@ export function ChatPage() {
       return;
     }
 
-    if (!ensureRemoteProfile()) {
-      return;
-    }
-
     const now = new Date();
     const files = submission.files ?? [];
+    const canPersistRemotely = ensureRemoteProfile();
 
     const fileAttachments: ChatAttachment[] = await Promise.all(
       files.map(async (file) => ({
@@ -683,18 +689,20 @@ export function ChatPage() {
 
     setPendingResponseChatId(chatAfterUserMessage.id);
 
-    try {
-      await updateChatRow(chatAfterUserMessage.id, {
-        messages: chatAfterUserMessage.messages,
-        summary: chatAfterUserMessage.preview,
-        lastMessageAt: now.toISOString()
-      });
-    } catch (error) {
-      console.error('Nachricht konnte nicht gespeichert werden.', error);
-      window.alert('Deine Nachricht konnte nicht gespeichert werden. Bitte versuche es erneut.');
-      setChats(previousChats);
-      setPendingResponseChatId(null);
-      return;
+    if (canPersistRemotely) {
+      try {
+        await updateChatRow(chatAfterUserMessage.id, {
+          messages: chatAfterUserMessage.messages,
+          summary: chatAfterUserMessage.preview,
+          lastMessageAt: now.toISOString()
+        });
+      } catch (error) {
+        console.error('Nachricht konnte nicht gespeichert werden.', error);
+        window.alert('Deine Nachricht konnte nicht gespeichert werden. Bitte versuche es erneut.');
+        setChats(previousChats);
+        setPendingResponseChatId(null);
+        return;
+      }
     }
 
     const effectiveWebhookUrl = selectedAgent?.webhookUrl?.trim() || settings.webhookUrl;

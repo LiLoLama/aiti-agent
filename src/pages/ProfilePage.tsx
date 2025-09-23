@@ -746,13 +746,14 @@ export function ProfilePage() {
       </div>
       {agentModal && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-10"
+          className="fixed inset-0 z-50 overflow-y-auto bg-black/60 px-4 py-10"
           onClick={closeAgentModal}
         >
-          <div
-            className="relative w-full max-w-2xl rounded-[32px] border border-white/10 bg-[#141414] p-8 text-white shadow-2xl"
-            onClick={(event) => event.stopPropagation()}
-          >
+          <div className="mx-auto flex min-h-full max-w-2xl items-center justify-center">
+            <div
+              className="relative w-full rounded-[32px] border border-white/10 bg-[#141414] p-8 text-white shadow-2xl"
+              onClick={(event) => event.stopPropagation()}
+            >
             <button
               type="button"
               onClick={closeAgentModal}
@@ -902,6 +903,7 @@ export function ProfilePage() {
             </form>
           </div>
         </div>
+      </div>
       )}
     </div>
   );

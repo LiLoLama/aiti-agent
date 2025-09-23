@@ -9,6 +9,10 @@ body {
   min-height: 100vh;
 }
 
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
 body,
 body.theme-dark {
   background: #181818;

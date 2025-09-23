@@ -92,7 +92,7 @@ export function ChatOverviewPanel({
   };
 
   const PanelContent = (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col overflow-hidden">
       <div className="border-b border-white/10 px-6 py-6">
         <div className="flex items-start justify-between gap-4">
           <div>
@@ -277,8 +277,10 @@ export function ChatOverviewPanel({
 
       {isMobileOpen && (
         <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/80 px-4 pb-24 pt-10 lg:hidden">
-          <div className="max-h-[80vh] w-full max-w-lg overflow-hidden rounded-3xl border border-white/10 bg-[#161616]/95 backdrop-blur-xl shadow-glow">
-            {PanelContent}
+          <div className="flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden rounded-3xl border border-white/10 bg-[#161616]/95 backdrop-blur-xl shadow-glow">
+            <div className="max-h-[80vh] overflow-y-auto overscroll-contain">
+              {PanelContent}
+            </div>
           </div>
         </div>
       )}
