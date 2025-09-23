@@ -20,6 +20,7 @@ export type Chat = {
   id: string;
   name: string;
   folder?: string;
+  folderId?: string;
   lastUpdated: string;
   preview: string;
   messages: ChatMessage[];

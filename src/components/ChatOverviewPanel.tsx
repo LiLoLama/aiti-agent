@@ -24,6 +24,7 @@ interface ChatOverviewPanelProps {
   onDeleteChat: (chatId: string) => void;
   customFolders: string[];
   onAssignChatFolder: (chatId: string) => void;
+  onDeleteFolder: (folder: string) => void;
 }
 
 export function ChatOverviewPanel({
@@ -37,7 +38,8 @@ export function ChatOverviewPanel({
   onRenameChat,
   onDeleteChat,
   customFolders,
-  onAssignChatFolder
+  onAssignChatFolder,
+  onDeleteFolder
 }: ChatOverviewPanelProps) {
   const chatsByFolder = useMemo(() => {
     return chats.reduce<Record<string, Chat[]>>((acc, chat) => {
@@ -190,6 +192,14 @@ export function ChatOverviewPanel({
                       </div>
                     </div>
                   ))}
+                  <div className="pt-2 text-right">
+                    <button
+                      onClick={() => onDeleteFolder(folder)}
+                      className="inline-flex items-center gap-2 rounded-xl border border-white/10 px-3 py-2 text-rose-300 transition hover:bg-white/10"
+                    >
+                      <TrashIcon className="h-4 w-4" /> Ordner löschen
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

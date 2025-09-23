@@ -39,7 +39,16 @@ const createEmptyAgentForm = (): AgentFormState => ({
 });
 
 export function ProfilePage() {
-  const { currentUser, users, updateProfile, toggleUserActive, logout, addAgent, updateAgent, removeAgent } = useAuth();
+  const {
+    currentUser,
+    users,
+    updateProfile,
+    toggleUserActive,
+    logout,
+    addAgent,
+    updateAgent,
+    removeAgent
+  } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [name, setName] = useState(currentUser?.name ?? '');
@@ -60,6 +69,7 @@ export function ProfilePage() {
     'idle' | 'pending' | 'success' | 'error'
   >('idle');
   const [agentWebhookTestMessage, setAgentWebhookTestMessage] = useState<string | null>(null);
+  const [adminError, setAdminError] = useState<string | null>(null);
 
   if (!currentUser) {
     return <Navigate to="/login" replace />;
@@ -155,7 +165,7 @@ export function ProfilePage() {
     resetAgentWebhookTest();
   };
 
-  const handleDeleteAgent = (agentId: string) => {
+  const handleDeleteAgent = async (agentId: string) => {
     if (typeof window !== 'undefined') {
       const shouldDelete = window.confirm('Möchtest du diesen Agent wirklich löschen?');
       if (!shouldDelete) {
@@ -163,7 +173,13 @@ export function ProfilePage() {
       }
     }
 
-    removeAgent(agentId);
+    try {
+      await removeAgent(agentId);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Agent konnte nicht gelöscht werden.';
+      setAgentError(message);
+    }
   };
 
   const handleAgentAvatarUpload = async (file: File | null) => {
@@ -184,6 +200,20 @@ export function ProfilePage() {
     }
   };
 
+  const performToggleUserActive = async (userId: string, nextActive: boolean) => {
+    setAdminError(null);
+
+    try {
+      await toggleUserActive(userId, nextActive);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Nutzerstatus konnte nicht aktualisiert werden.';
+      setAdminError(message);
+    }
+  };
+
   const handleAgentSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
@@ -201,7 +231,7 @@ export function ProfilePage() {
 
     try {
       if (agentModal.mode === 'create') {
-        addAgent({
+        await addAgent({
           name: agentForm.name,
           description: agentForm.description,
           avatarUrl: agentForm.avatarUrl,
@@ -209,7 +239,7 @@ export function ProfilePage() {
           webhookUrl: agentForm.webhookUrl
         });
       } else {
-        updateAgent(agentModal.agent.id, {
+        await updateAgent(agentModal.agent.id, {
           name: agentForm.name,
           description: agentForm.description,
           avatarUrl: agentForm.avatarUrl,
@@ -234,7 +264,7 @@ export function ProfilePage() {
     setFeedback(null);
 
     try {
-      updateProfile({
+      await updateProfile({
         name,
         bio,
         avatarUrl: avatarPreview
@@ -407,7 +437,9 @@ export function ProfilePage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleDeleteAgent(agent.id)}
+                  onClick={() => {
+                    void handleDeleteAgent(agent.id);
+                  }}
                   className="inline-flex items-center gap-2 rounded-full border border-red-500/40 px-5 py-2 text-xs font-semibold text-red-400 transition hover:border-red-400 hover:bg-red-500/10 hover:text-red-200"
                 >
                   <TrashIcon className="h-4 w-4" />
@@ -449,8 +481,8 @@ export function ProfilePage() {
                 <h1 className="mt-2 text-3xl font-semibold">Dein persönlicher Bereich</h1>
               </div>
               <button
-                onClick={() => {
-                  logout();
+                onClick={async () => {
+                  await logout();
                   navigate('/login', { replace: true });
                 }}
                 className="rounded-full border border-white/20 px-5 py-2 text-xs font-semibold text-white/70 transition hover:bg-white/10"
@@ -621,6 +653,13 @@ export function ProfilePage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-white/10 bg-[#121212]">
+                        {adminError && (
+                          <tr>
+                            <td colSpan={5} className="px-4 py-3 text-sm text-rose-300">
+                              {adminError}
+                            </td>
+                          </tr>
+                        )}
                         {adminVisibleUsers.map((user) => (
                           <tr key={user.id} className="text-white/80">
                             <td className="px-4 py-3">
@@ -654,7 +693,9 @@ export function ProfilePage() {
                             <td className="px-4 py-3 text-right">
                               <button
                                 type="button"
-                                onClick={() => toggleUserActive(user.id, !user.isActive)}
+                                onClick={() => {
+                                  void performToggleUserActive(user.id, !user.isActive);
+                                }}
                                 className="rounded-full border border-white/10 px-4 py-2 text-xs font-semibold text-white/70 transition hover:bg-white/10 disabled:opacity-40"
                                 disabled={user.id === currentUser.id}
                               >
