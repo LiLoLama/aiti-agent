@@ -107,8 +107,8 @@ export function LoginPage() {
                 <p className="text-xs uppercase tracking-[0.4em] text-white/60">Highlights</p>
                 <ul className="mt-3 space-y-2 text-sm text-white/80">
                   <li>• Intuitive Chat-Oberfläche für Agentensteuerung</li>
-                  <li>• Strukturierte Verwaltung deiner Automationen</li>
-                  <li>• Admin-Insights über alle aktiven Nutzer</li>
+                  <li>• Strukturierte Verwaltung deiner Chats</li>
+                  <li>• Individuelle Agent Anpassung</li>
                 </ul>
               </div>
             </div>
