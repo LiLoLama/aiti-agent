@@ -331,6 +331,32 @@ export function ChatPage() {
     handleCloseFolderSelection();
   };
 
+  const handleDeleteFolder = (folder: string) => {
+    const folderChats = chats.filter((chat) => chat.folder === folder);
+    const shouldDelete = window.confirm(
+      folderChats.length > 0
+        ? `Soll der Ordner "${folder}" gelöscht werden? Die enthaltenen Chats bleiben erhalten und werden keinem Ordner mehr zugeordnet.`
+        : `Soll der Ordner "${folder}" gelöscht werden?`
+    );
+
+    if (!shouldDelete) {
+      return;
+    }
+
+    setChats((prev) =>
+      prev.map((chat) =>
+        chat.folder === folder
+          ? {
+              ...chat,
+              folder: undefined
+            }
+          : chat
+      )
+    );
+
+    setCustomFolders((prev) => prev.filter((existingFolder) => existingFolder !== folder));
+  };
+
   const handleSendMessage = async (submission: ChatInputSubmission) => {
     const currentChat = activeChat;
     if (!currentChat) {
@@ -497,6 +523,7 @@ export function ChatPage() {
             onDeleteChat={handleDeleteChat}
             customFolders={customFolders}
             onAssignChatFolder={handleAssignChatFolder}
+            onDeleteFolder={handleDeleteFolder}
           />
         )}
 
