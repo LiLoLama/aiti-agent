@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode
 } from 'react';
-import type { PostgrestError, Session } from '@supabase/supabase-js';
+import type { AuthChangeEvent, PostgrestError, Session } from '@supabase/supabase-js';
 import {
   AgentDraft,
   AgentProfile,
@@ -118,7 +118,8 @@ const mapRowToAuthUser = (row: ProfileRow, overrideName?: string): AuthUser => (
   avatarUrl: row.avatar_url,
   emailVerified: (row.email_verified ?? '').toLowerCase() === 'true',
   agents: parseAgents(row.agents),
-  bio: row.bio ?? undefined
+  bio: row.bio ?? undefined,
+  hasRemoteProfile: true
 });
 
 const createFallbackAuthUser = (
@@ -136,8 +137,20 @@ const createFallbackAuthUser = (
   avatarUrl: session.user.user_metadata?.avatar_url ?? null,
   emailVerified: Boolean(session.user.email_confirmed_at),
   agents: [],
-  bio: ''
+  bio: '',
+  hasRemoteProfile: false
 });
+
+class ProfilePolicyError extends Error {
+  fallbackUser: AuthUser;
+
+  constructor(message: string, fallbackUser: AuthUser) {
+    super(message);
+    this.name = 'ProfilePolicyError';
+    this.fallbackUser = fallbackUser;
+    Object.setPrototypeOf(this, ProfilePolicyError.prototype);
+  }
+}
 
 const createProfileInsertPayload = (
   session: Session,
@@ -192,8 +205,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .eq('id', session.user.id)
         .maybeSingle<ProfileRow>();
 
-      if (existingError && existingError.code !== 'PGRST116') {
-        throw new Error(existingError.message);
+      if (existingError) {
+        if (isRowLevelSecurityError(existingError)) {
+          const fallbackUser = createFallbackAuthUser(session, options);
+          throw new ProfilePolicyError(
+            'Profil konnte nicht geladen werden: Die Row-Level-Security-Policies für "profiles" erlauben keinen Zugriff. Bitte passe deine Supabase-Policies an.',
+            fallbackUser
+          );
+        }
+
+        if (existingError.code !== 'PGRST116') {
+          throw new Error(existingError.message);
+        }
       }
 
       if (existing) {
@@ -209,8 +232,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (insertError) {
         if (isRowLevelSecurityError(insertError)) {
-          console.warn('Profil konnte nicht gespeichert werden:', insertError.message);
-          return createFallbackAuthUser(session, options);
+          const fallbackUser = createFallbackAuthUser(session, options);
+          throw new ProfilePolicyError(
+            'Profil konnte nicht gespeichert werden: Die Row-Level-Security-Policies für "profiles" erlauben das Anlegen nicht. Bitte ergänze passende Policies in Supabase.',
+            fallbackUser
+          );
         }
 
         throw new Error(insertError.message);
@@ -222,13 +248,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const fetchAllProfiles = useCallback(async () => {
-    const { data, error } = await supabase.from('profiles').select('*');
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .returns<ProfileRow[]>();
 
     if (error) {
       throw new Error(error.message);
     }
 
-    return data.map((row) => mapRowToAuthUser(row));
+    return (data ?? []).map((row) => mapRowToAuthUser(row));
   }, []);
 
   const updateUsersState = useCallback((updatedUser: AuthUser) => {
@@ -271,6 +300,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         return ensuredProfile;
       } catch (error) {
+        if (error instanceof ProfilePolicyError) {
+          setCurrentUser(error.fallbackUser);
+          setUsers([error.fallbackUser]);
+          throw error;
+        }
+
         console.error('Profil konnte nicht geladen werden.', error);
         setCurrentUser(null);
         setUsers([]);
@@ -301,14 +336,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     void initialise();
 
-    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
-      setIsLoading(true);
-      void handleSession(session).finally(() => {
-        if (isActive) {
-          setIsLoading(false);
-        }
-      });
-    });
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      (_event: AuthChangeEvent, session: Session | null) => {
+        setIsLoading(true);
+        void handleSession(session).finally(() => {
+          if (isActive) {
+            setIsLoading(false);
+          }
+        });
+      }
+    );
 
     return () => {
       isActive = false;
@@ -389,6 +426,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error('Kein Nutzer angemeldet.');
       }
 
+      if (!currentUser.hasRemoteProfile) {
+        throw new Error(
+          'Dein Profil kann aktuell nicht gespeichert werden, weil kein Supabase-Profil vorhanden ist. Bitte prüfe die Row-Level-Security-Policies für "profiles" und versuche es erneut.'
+        );
+      }
+
       const session = await ensureSession();
       await ensureProfileForSession(session, {
         displayName: currentUser.name,
@@ -460,6 +503,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error('Kein Nutzer angemeldet.');
       }
 
+      if (!currentUser.hasRemoteProfile) {
+        throw new Error(
+          'Neue Agents können nicht gespeichert werden, solange kein Supabase-Profil existiert. Bitte ergänze die notwendigen Policies für "profiles".'
+        );
+      }
+
       const trimmedName = agent.name.trim();
       if (!trimmedName) {
         throw new Error('Bitte gib einen Agent-Namen an.');
@@ -498,6 +547,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error('Kein Nutzer angemeldet.');
       }
 
+      if (!currentUser.hasRemoteProfile) {
+        throw new Error(
+          'Agents können nicht aktualisiert werden, solange kein Supabase-Profil vorhanden ist. Bitte passe die Policies für "profiles" an.'
+        );
+      }
+
       const session = await ensureSession();
       await ensureProfileForSession(session, {
         displayName: currentUser.name,
@@ -532,6 +587,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error('Kein Nutzer angemeldet.');
       }
 
+      if (!currentUser.hasRemoteProfile) {
+        throw new Error(
+          'Agents können nicht gelöscht werden, solange kein Supabase-Profil existiert. Bitte prüfe die Policies für "profiles".'
+        );
+      }
+
       const session = await ensureSession();
       await ensureProfileForSession(session, {
         displayName: currentUser.name,
@@ -556,6 +617,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (currentUser.role !== 'admin') {
         throw new Error('Nur Administratoren können Nutzer aktivieren oder deaktivieren.');
+      }
+
+      if (!currentUser.hasRemoteProfile) {
+        throw new Error(
+          'Nutzerstatus kann nicht geändert werden, solange kein Supabase-Profil vorhanden ist. Bitte ergänze passende Policies für "profiles".'
+        );
       }
 
       const session = await ensureSession();

@@ -67,6 +67,10 @@ export function ChatPage() {
   const [newFolderName, setNewFolderName] = useState('');
   const [pendingResponseChatId, setPendingResponseChatId] = useState<string | null>(null);
   const [activeAgentId, setActiveAgentId] = useState<string | null>(null);
+  const hasRemoteProfile = currentUser?.hasRemoteProfile ?? false;
+  const requiresRemoteProfileSetup = Boolean(currentUser) && !hasRemoteProfile;
+  const remoteProfileSetupMessage =
+    'Dein Supabase-Profil konnte nicht erstellt werden. Bitte ergänze passende Policies für die Tabelle "profiles", damit Chats und Ordner gespeichert werden können.';
 
   const activeChat = useMemo(
     () => chats.find((chat) => chat.id === activeChatId) ?? chats[0],
@@ -174,6 +178,15 @@ export function ChatPage() {
     applyColorScheme(settings.colorScheme);
   }, [settings.colorScheme]);
 
+  const ensureRemoteProfile = () => {
+    if (!currentUser?.hasRemoteProfile) {
+      window.alert(remoteProfileSetupMessage);
+      return false;
+    }
+
+    return true;
+  };
+
   useEffect(() => {
     if (!currentUser) {
       setChats([]);
@@ -181,6 +194,15 @@ export function ChatPage() {
       setActiveChatId('');
       setIsLoadingRemoteData(false);
       setRemoteSyncError(null);
+      return;
+    }
+
+    if (!currentUser.hasRemoteProfile) {
+      setChats([]);
+      setFolders([]);
+      setActiveChatId('');
+      setIsLoadingRemoteData(false);
+      setRemoteSyncError(remoteProfileSetupMessage);
       return;
     }
 
@@ -261,7 +283,7 @@ export function ChatPage() {
     return () => {
       isSubscribed = false;
     };
-  }, [currentUser?.id, currentUser?.name, settings.profileName]);
+  }, [currentUser?.hasRemoteProfile, currentUser?.id, currentUser?.name, remoteProfileSetupMessage, settings.profileName]);
 
   const handleOpenAgentCreation = () => {
     setMobileWorkspaceOpen(false);
@@ -270,6 +292,10 @@ export function ChatPage() {
 
   const handleNewChat = async () => {
     if (!currentUser) {
+      return;
+    }
+
+    if (!ensureRemoteProfile()) {
       return;
     }
 
@@ -329,6 +355,10 @@ export function ChatPage() {
       return;
     }
 
+    if (!ensureRemoteProfile()) {
+      return;
+    }
+
     const newName = window.prompt('Wie soll der Chat heißen?', chatToRename.name)?.trim();
     if (!newName || newName === chatToRename.name) {
       return;
@@ -361,6 +391,10 @@ export function ChatPage() {
       return;
     }
 
+    if (!ensureRemoteProfile()) {
+      return;
+    }
+
     const shouldDelete = window.confirm(
       `Soll der Chat "${chatToDelete.name}" wirklich gelöscht werden?`
     );
@@ -390,6 +424,10 @@ export function ChatPage() {
 
   const handleCreateFolder = async () => {
     if (!currentUser) {
+      return;
+    }
+
+    if (!ensureRemoteProfile()) {
       return;
     }
 
@@ -435,6 +473,10 @@ export function ChatPage() {
 
   const handleConfirmFolderSelection = async () => {
     if (!folderSelectionChatId || !currentUser) {
+      return;
+    }
+
+    if (!ensureRemoteProfile()) {
       return;
     }
 
@@ -497,6 +539,10 @@ export function ChatPage() {
       return;
     }
 
+    if (!ensureRemoteProfile()) {
+      return;
+    }
+
     const folderRecord = folderNameMap.get(folderName);
     if (!folderRecord) {
       window.alert('Der ausgewählte Ordner ist nicht mehr verfügbar.');
@@ -547,6 +593,10 @@ export function ChatPage() {
   const handleSendMessage = async (submission: ChatInputSubmission) => {
     const currentChat = activeChat;
     if (!currentChat) {
+      return;
+    }
+
+    if (!ensureRemoteProfile()) {
       return;
     }
 
@@ -785,7 +835,17 @@ export function ChatPage() {
           </div>
 
           <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
-            {hasAgents ? (
+            {requiresRemoteProfileSetup ? (
+              <div className="flex flex-1 items-center justify-center px-6 text-sm text-white/70">
+                <div className="w-full max-w-xl rounded-3xl border border-amber-400/20 bg-amber-500/10 p-6 text-center text-amber-100">
+                  <h2 className="text-lg font-semibold text-amber-200">Supabase-Setup erforderlich</h2>
+                  <p className="mt-3 text-sm text-amber-100/80">{remoteProfileSetupMessage}</p>
+                  <p className="mt-3 text-xs uppercase tracking-[0.3em] text-amber-200/60">
+                    Ergänze eine Policy für "profiles" und lade die Seite neu.
+                  </p>
+                </div>
+              </div>
+            ) : hasAgents ? (
               <>
                 {activeChat ? (
                   <ChatTimeline

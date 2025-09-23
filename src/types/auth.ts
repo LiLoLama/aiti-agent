@@ -19,6 +19,7 @@ export interface AuthUser {
   emailVerified: boolean;
   agents: AgentProfile[];
   bio?: string;
+  hasRemoteProfile: boolean;
 }
 
 export interface AuthCredentials {

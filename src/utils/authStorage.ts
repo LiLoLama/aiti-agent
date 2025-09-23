@@ -21,6 +21,7 @@ const defaultUsers: StoredUser[] = [
     avatarUrl: null,
     emailVerified: true,
     bio: 'Verwaltet den AITI Explorer Agent.',
+    hasRemoteProfile: true,
     agents: [
       {
         id: 'agent-admin-001',
@@ -50,6 +51,7 @@ const defaultUsers: StoredUser[] = [
     avatarUrl: null,
     emailVerified: true,
     bio: 'Produktmanagerin mit Fokus auf Automatisierungen.',
+    hasRemoteProfile: true,
     agents: [
       {
         id: 'agent-user-001',
@@ -71,6 +73,7 @@ const defaultUsers: StoredUser[] = [
     avatarUrl: null,
     emailVerified: false,
     bio: 'Experimentiert gerade mit eigenen Agenten.',
+    hasRemoteProfile: true,
     agents: [
       {
         id: 'agent-user-002',
