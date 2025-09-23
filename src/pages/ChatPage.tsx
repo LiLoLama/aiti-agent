@@ -62,6 +62,7 @@ export function ChatPage() {
   const [folders, setFolders] = useState<FolderRecord[]>([]);
   const [isLoadingRemoteData, setIsLoadingRemoteData] = useState(false);
   const [remoteSyncError, setRemoteSyncError] = useState<string | null>(null);
+  const [folderLoadError, setFolderLoadError] = useState<string | null>(null);
   const [folderSelectionChatId, setFolderSelectionChatId] = useState<string | null>(null);
   const [selectedExistingFolder, setSelectedExistingFolder] = useState<string>('__none__');
   const [newFolderName, setNewFolderName] = useState('');
@@ -211,12 +212,25 @@ export function ChatPage() {
     const loadRemoteData = async () => {
       setIsLoadingRemoteData(true);
       setRemoteSyncError(null);
+      setFolderLoadError(null);
 
       try {
-        const [folderRows, chatRows] = await Promise.all([
-          fetchFoldersForProfile(currentUser.id),
-          fetchChatsForProfile(currentUser.id)
-        ]);
+        const chatRows = await fetchChatsForProfile(currentUser.id);
+
+        if (!isSubscribed) {
+          return;
+        }
+
+        let folderRows: FolderRecord[] = [];
+
+        try {
+          folderRows = await fetchFoldersForProfile(currentUser.id);
+        } catch (folderError) {
+          console.error('Ordner konnten nicht geladen werden.', folderError);
+          if (isSubscribed) {
+            setFolderLoadError('Ordner konnten nicht geladen werden.');
+          }
+        }
 
         if (!isSubscribed) {
           return;
@@ -256,7 +270,6 @@ export function ChatPage() {
         }
 
         const sortedFolders = [...folderRows].sort((a, b) => a.name.localeCompare(b.name));
-
         setFolders(sortedFolders);
         setChats(normalizedChats);
         setActiveChatId((currentId) => {
@@ -817,6 +830,11 @@ export function ChatPage() {
           {remoteSyncError && (
             <div className="mx-4 mt-4 rounded-2xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200 md:mx-6">
               {remoteSyncError}
+            </div>
+          )}
+          {folderLoadError && (
+            <div className="mx-4 mt-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100 md:mx-6">
+              {folderLoadError}
             </div>
           )}
 
