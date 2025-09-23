@@ -468,7 +468,7 @@ export function ProfilePage() {
             </header>
 
             <form className="mt-10 space-y-10" onSubmit={handleSubmit}>
-              <div className="grid gap-8 lg:grid-cols-[220px_minmax(0,1fr)] xl:grid-cols-[220px_minmax(0,1.15fr)_minmax(0,0.85fr)]">
+              <div className="grid gap-8 lg:grid-cols-[220px_minmax(0,1fr)] xl:grid-cols-[220px_minmax(0,1.5fr)_minmax(0,1.15fr)]">
                 <div className="flex flex-col items-center gap-3 text-center lg:items-start lg:text-left">
                   <div className="relative h-32 w-32 overflow-hidden rounded-3xl border border-white/10 bg-black/30">
                     <img src={displayedAvatar} alt={name} className="h-full w-full object-cover" />
@@ -493,13 +493,13 @@ export function ProfilePage() {
                   )}
                 </div>
 
-                <div className="space-y-6">
-                  <div className="grid gap-5 md:grid-cols-2">
+                <div className="space-y-6 xl:max-w-2xl">
+                  <div className="space-y-5">
                     <div>
                       <label className="text-xs font-medium uppercase tracking-[0.35em] text-white/40">Name</label>
                       <input
                         type="text"
-                        className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white focus:border-brand-gold focus:outline-none focus:ring-2 focus:ring-brand-gold/30"
+                        className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-5 py-3.5 text-base text-white focus:border-brand-gold focus:outline-none focus:ring-2 focus:ring-brand-gold/30"
                         value={name}
                         onChange={(event) => setName(event.target.value)}
                         required
@@ -509,7 +509,7 @@ export function ProfilePage() {
                       <label className="text-xs font-medium uppercase tracking-[0.35em] text-white/40">E-Mail</label>
                       <input
                         type="email"
-                        className="mt-2 w-full cursor-not-allowed rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/60"
+                        className="mt-2 w-full cursor-not-allowed rounded-2xl border border-white/10 bg-white/5 px-5 py-3.5 text-base text-white/60"
                         value={currentUser.email}
                         readOnly
                       />
@@ -518,7 +518,7 @@ export function ProfilePage() {
                   <div>
                     <label className="text-xs font-medium uppercase tracking-[0.35em] text-white/40">Über dich</label>
                     <textarea
-                      className="mt-2 min-h-[150px] w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white focus:border-brand-gold focus:outline-none focus:ring-2 focus:ring-brand-gold/30"
+                      className="mt-2 min-h-[150px] w-full rounded-2xl border border-white/10 bg-white/5 px-5 py-3.5 text-base text-white focus:border-brand-gold focus:outline-none focus:ring-2 focus:ring-brand-gold/30"
                       placeholder="Welche Projekte setzt du mit dem AITI Agent um?"
                       value={bio}
                       onChange={(event) => setBio(event.target.value)}
@@ -527,14 +527,10 @@ export function ProfilePage() {
                 </div>
 
                 <div className="space-y-4 lg:col-span-2 xl:col-span-1">
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-1">
-                    <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                      <p className="text-xs uppercase tracking-[0.35em] text-white/40">Rolle</p>
-                      <p className="mt-2 text-sm font-semibold text-white">{currentUser.role === 'admin' ? 'Administrator' : 'Nutzer'}</p>
-                    </div>
-                    <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-1">
+                    <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
                       <p className="text-xs uppercase tracking-[0.35em] text-white/40">Status</p>
-                      <p className="mt-2 inline-flex items-center gap-2 text-sm font-semibold">
+                      <p className="mt-3 inline-flex items-center gap-2 text-base font-semibold">
                         {currentUser.isActive ? (
                           <>
                             <CheckCircleIcon className="h-4 w-4 text-emerald-400" /> Aktiv
@@ -546,14 +542,17 @@ export function ProfilePage() {
                         )}
                       </p>
                     </div>
-                    <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                    <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
                       <p className="text-xs uppercase tracking-[0.35em] text-white/40">Agents erstellt</p>
-                      <p className="mt-2 text-sm font-semibold text-white">{userAgents.length}</p>
+                      <p className="mt-3 text-base font-semibold text-white">{userAgents.length}</p>
                     </div>
                   </div>
-                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
                     <p className="text-xs uppercase tracking-[0.35em] text-white/40">Farbschema</p>
-                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <p className="mt-2 text-sm text-white/60">
+                      Wähle das Farberlebnis, das am besten zu deinem Arbeitsstil passt.
+                    </p>
+                    <div className="mt-5 grid gap-4 sm:grid-cols-2">
                       {[
                         { value: 'dark' as const, label: 'Dark Mode' },
                         { value: 'light' as const, label: 'Light Mode' }
@@ -563,14 +562,14 @@ export function ProfilePage() {
                           key={option.value}
                           onClick={() => handleColorSchemeChange(option.value)}
                           className={clsx(
-                            'rounded-2xl border px-4 py-3 text-left transition',
+                            'rounded-2xl border px-5 py-4 text-left transition',
                             agentSettings.colorScheme === option.value
                               ? 'border-brand-gold/60 bg-white/10 text-white shadow-glow'
                               : 'border-white/10 bg-white/5 text-white/70 hover:bg-white/10'
                           )}
                           aria-pressed={agentSettings.colorScheme === option.value}
                         >
-                          <span className="block text-sm font-semibold text-white">{option.label}</span>
+                          <span className="block text-base font-semibold text-white">{option.label}</span>
                         </button>
                       ))}
                     </div>
