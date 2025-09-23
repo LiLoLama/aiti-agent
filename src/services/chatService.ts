@@ -95,7 +95,7 @@ const formatDisplayTime = (value: string | null | undefined) => {
 };
 
 export const fetchFoldersForProfile = async (profileId: string): Promise<FolderRecord[]> => {
-  const { data, error } = await supabase.from('folder').select('*').eq('profile_id', profileId);
+  const { data, error } = await supabase.from('chat_folders').select('*').eq('profile_id', profileId);
 
   if (error) {
     throw error;
@@ -132,7 +132,7 @@ export const createFolderForProfile = async (
 ): Promise<FolderRecord> => {
   const trimmedName = name.trim();
   const { data, error } = await supabase
-    .from('folder')
+    .from('chat_folders')
     .insert({
       profile_id: profileId,
       name: trimmedName
@@ -148,7 +148,7 @@ export const createFolderForProfile = async (
 };
 
 export const deleteFolderById = async (folderId: string) => {
-  const { error } = await supabase.from('folder').delete().eq('id', folderId);
+  const { error } = await supabase.from('chat_folders').delete().eq('id', folderId);
   if (error) {
     throw error;
   }

@@ -257,7 +257,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw new Error(error.message);
     }
 
-    return (data ?? []).map((row) => mapRowToAuthUser(row));
+    const rows = data ?? [];
+    return rows.map((row: ProfileRow) => mapRowToAuthUser(row));
   }, []);
 
   const updateUsersState = useCallback((updatedUser: AuthUser) => {
