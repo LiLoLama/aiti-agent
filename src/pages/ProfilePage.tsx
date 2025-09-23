@@ -746,29 +746,30 @@ export function ProfilePage() {
       </div>
       {agentModal && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-10"
+          className="fixed inset-0 z-50 overflow-y-auto bg-black/60 px-4 py-10"
           onClick={closeAgentModal}
         >
-          <div
-            className="relative w-full max-w-2xl rounded-[32px] border border-white/10 bg-[#141414] p-8 text-white shadow-2xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <button
-              type="button"
-              onClick={closeAgentModal}
-              className="absolute right-5 top-5 rounded-full border border-white/10 p-2 text-white/60 transition hover:bg-white/10 hover:text-white"
+          <div className="mx-auto flex min-h-full w-full max-w-2xl items-center justify-center">
+            <div
+              className="relative w-full rounded-[32px] border border-white/10 bg-[#141414] p-8 text-white shadow-2xl"
+              onClick={(event) => event.stopPropagation()}
             >
-              <XMarkIcon className="h-5 w-5" />
-            </button>
-            <h3 className="text-2xl font-semibold">
-              {agentModal.mode === 'create'
-                ? 'Neuen Agent anlegen'
-                : `${agentModal.agent.name} konfigurieren`}
-            </h3>
-            <p className="mt-2 text-sm text-white/60">
-              Verleihe deinem Agenten ein klares Profil und lege Tools sowie Webhook fest.
-            </p>
-            <form className="mt-8 space-y-6" onSubmit={handleAgentSubmit}>
+              <button
+                type="button"
+                onClick={closeAgentModal}
+                className="absolute right-5 top-5 rounded-full border border-white/10 p-2 text-white/60 transition hover:bg-white/10 hover:text-white"
+              >
+                <XMarkIcon className="h-5 w-5" />
+              </button>
+              <h3 className="text-2xl font-semibold">
+                {agentModal.mode === 'create'
+                  ? 'Neuen Agent anlegen'
+                  : `${agentModal.agent.name} konfigurieren`}
+              </h3>
+              <p className="mt-2 text-sm text-white/60">
+                Verleihe deinem Agenten ein klares Profil und lege Tools sowie Webhook fest.
+              </p>
+              <form className="mt-8 space-y-6" onSubmit={handleAgentSubmit}>
               <div className="flex flex-col gap-6 md:flex-row">
                 <div className="flex flex-col items-center gap-3 text-center md:w-52">
                   <div className="relative h-28 w-28 overflow-hidden rounded-3xl border border-white/10 bg-black/30">
@@ -902,6 +903,7 @@ export function ProfilePage() {
             </form>
           </div>
         </div>
+      </div>
       )}
     </div>
   );
