@@ -20,7 +20,7 @@ const initialFormState: FormState = {
 };
 
 export function LoginPage() {
-  const { currentUser, login, register } = useAuth();
+  const { currentUser, login, register, isLoading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [mode, setMode] = useState<AuthMode>('login');
@@ -30,6 +30,14 @@ export function LoginPage() {
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
 
   const redirectPath = ((location.state as { from?: Location })?.from?.pathname) ?? '/';
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#0c0c0c] px-4 py-10 text-white">
+        <p className="text-sm text-white/70">Authentifizierung wird geladen …</p>
+      </div>
+    );
+  }
 
   if (currentUser) {
     return <Navigate to={redirectPath} replace />;
@@ -59,17 +67,24 @@ export function LoginPage() {
           throw new Error('Die Passwörter stimmen nicht überein.');
         }
 
-        await register({
+        const { sessionExists } = await register({
           name: formState.name,
           email: formState.email,
           password: formState.password
         });
 
-        setInfoMessage(
-          'Account angelegt! Wir haben dir eine E-Mail zur Bestätigung gesendet. Du wirst direkt weitergeleitet.'
-        );
-        registrationSucceeded = true;
-        navigate('/profile', { replace: true, state: { onboarding: true } });
+        if (sessionExists) {
+          setInfoMessage(
+            'Account angelegt! Wir haben dir eine E-Mail zur Bestätigung gesendet. Du wirst direkt weitergeleitet.'
+          );
+          registrationSucceeded = true;
+          navigate('/profile', { replace: true, state: { onboarding: true } });
+        } else {
+          setInfoMessage(
+            'Account angelegt! Bitte bestätige deine E-Mail und melde dich danach mit deinen Zugangsdaten an.'
+          );
+          registrationSucceeded = true;
+        }
       }
     } catch (submissionError) {
       const message =
