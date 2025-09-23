@@ -356,6 +356,15 @@ export function ChatPage() {
     }
   };
 
+  const handleSelectAgent = (agentId: string) => {
+    if (agentId === activeAgentId) {
+      return;
+    }
+
+    setActiveAgentId(agentId);
+    void handleNewChat();
+  };
+
   const handleSelectChat = (chatId: string) => {
     setActiveChatId(chatId);
     setMobileWorkspaceOpen(false);
@@ -817,7 +826,7 @@ export function ChatPage() {
             onOpenProfile={() => navigate('/profile')}
             agents={agentSwitcherOptions}
             activeAgentId={selectedAgent?.id ?? null}
-            onSelectAgent={(agentId) => setActiveAgentId(agentId)}
+            onSelectAgent={handleSelectAgent}
             onCreateAgent={handleOpenAgentCreation}
           />
 
