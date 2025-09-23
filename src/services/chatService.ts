@@ -95,17 +95,35 @@ const formatDisplayTime = (value: string | null | undefined) => {
 };
 
 export const fetchFoldersForProfile = async (profileId: string): Promise<FolderRecord[]> => {
-  const { data, error } = await supabase
-    .from('folder')
-    .select('id, profile_id, name, created_at, updated_at')
-    .eq('profile_id', profileId)
-    .order('name', { ascending: true });
+  const { data, error } = await supabase.from('folder').select('*').eq('profile_id', profileId);
 
   if (error) {
     throw error;
   }
 
-  return data ?? [];
+  const rows = (data ?? []) as Array<Partial<FolderRecord> & Record<string, unknown>>;
+
+  return rows
+    .map((row) => {
+      const id = typeof row.id === 'string' ? row.id : row.id ? String(row.id) : '';
+      const profileId =
+        typeof row.profile_id === 'string'
+          ? row.profile_id
+          : row.profile_id
+          ? String(row.profile_id)
+          : '';
+      const name = typeof row.name === 'string' && row.name.trim().length > 0 ? row.name : 'Unbenannter Ordner';
+
+      return {
+        id,
+        profile_id: profileId,
+        name,
+        created_at: typeof row.created_at === 'string' ? row.created_at : null,
+        updated_at: typeof row.updated_at === 'string' ? row.updated_at : null
+      };
+    })
+    .filter((row) => row.id && row.profile_id)
+    .sort((a, b) => a.name.localeCompare(b.name));
 };
 
 export const createFolderForProfile = async (
@@ -149,19 +167,57 @@ export const detachFolderFromChats = async (profileId: string, folderId: string)
 };
 
 export const fetchChatsForProfile = async (profileId: string): Promise<ChatRow[]> => {
-  const { data, error } = await supabase
-    .from('chats')
-    .select('id, profile_id, title, name, folder_id, messages, summary, last_message_at, created_at, updated_at')
-    .eq('profile_id', profileId)
-    .order('last_message_at', { ascending: false })
-    .order('updated_at', { ascending: false })
-    .order('created_at', { ascending: false });
+  const { data, error } = await supabase.from('chats').select('*').eq('profile_id', profileId);
 
   if (error) {
     throw error;
   }
 
-  return data ?? [];
+  const rows = (data ?? []) as Array<ChatRow & Record<string, unknown>>;
+
+  const normalizeTimestamp = (value: unknown): string | null => {
+    if (!value) {
+      return null;
+    }
+
+    if (typeof value === 'string') {
+      return value;
+    }
+
+    if (value instanceof Date) {
+      return value.toISOString();
+    }
+
+    const coerced = new Date(value as any);
+    const time = coerced.getTime();
+    return Number.isNaN(time) ? null : coerced.toISOString();
+  };
+
+  return rows
+    .map((row) => ({
+      ...row,
+      last_message_at: normalizeTimestamp(row.last_message_at),
+      updated_at: normalizeTimestamp(row.updated_at),
+      created_at: normalizeTimestamp(row.created_at)
+    }))
+    .sort((a, b) => {
+      const aTime = a.last_message_at ?? a.updated_at ?? a.created_at;
+      const bTime = b.last_message_at ?? b.updated_at ?? b.created_at;
+
+      if (!aTime && !bTime) {
+        return 0;
+      }
+
+      if (!aTime) {
+        return 1;
+      }
+
+      if (!bTime) {
+        return -1;
+      }
+
+      return new Date(bTime).getTime() - new Date(aTime).getTime();
+    });
 };
 
 export const mapChatRowToChat = (
