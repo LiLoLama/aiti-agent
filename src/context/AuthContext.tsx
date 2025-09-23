@@ -356,7 +356,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         password,
         options: {
           data: {
-            display_name: trimmedName
+            display_name: trimmedName,
+            name: trimmedName
           }
         }
       });
@@ -400,7 +401,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (updates.name !== undefined) {
         payload.display_name = updates.name.trim();
-        payload.name = updates.name.trim();
       }
 
       if (updates.avatarUrl !== undefined) {

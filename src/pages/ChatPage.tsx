@@ -171,7 +171,7 @@ export function ChatPage() {
 
   const handleNewChat = () => {
     const timestamp = new Date();
-    const userName = settings.profileName?.trim();
+    const userName = (currentUser?.name ?? settings.profileName ?? '').trim();
     const greeting = userName
       ? `Hallo ${userName}! Wie kann ich dir heute helfen?`
       : 'Hallo! Wie kann ich dir heute helfen?';
