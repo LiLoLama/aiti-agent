@@ -64,6 +64,26 @@ export function loadAgentSettings(): AgentSettings {
       typeof parsed.profileAvatarImage === 'string' ? parsed.profileAvatarImage : storedProfileAvatar;
     const agentAvatarImage =
       typeof parsed.agentAvatarImage === 'string' ? parsed.agentAvatarImage : storedAgentAvatar;
+
+    const sanitizedForStorage: Record<string, unknown> = {
+      ...parsed,
+      colorScheme
+    };
+
+    delete sanitizedForStorage.profileAvatarImage;
+    delete sanitizedForStorage.agentAvatarImage;
+    delete sanitizedForStorage.apiKey;
+    delete sanitizedForStorage.basicAuthPassword;
+    delete sanitizedForStorage.oauthToken;
+
+    if (Object.keys(sanitizedForStorage).length > 0) {
+      window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(sanitizedForStorage));
+    } else {
+      window.localStorage.removeItem(SETTINGS_STORAGE_KEY);
+    }
+
+    persistImage(PROFILE_AVATAR_STORAGE_KEY, profileAvatarImage ?? null);
+    persistImage(AGENT_AVATAR_STORAGE_KEY, agentAvatarImage ?? null);
     return {
       ...DEFAULT_AGENT_SETTINGS,
       ...parsed,
