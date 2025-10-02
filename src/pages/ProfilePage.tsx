@@ -17,6 +17,10 @@ import { loadAgentSettings, saveAgentSettings } from '../utils/storage';
 import { applyColorScheme } from '../utils/theme';
 import { sendWebhookMessage } from '../utils/webhook';
 import { prepareImageForStorage } from '../utils/image';
+import {
+  applyIntegrationSecretToSettings,
+  fetchIntegrationSecret
+} from '../services/integrationSecretsService';
 import userAvatar from '../assets/default-user.svg';
 import agentFallbackAvatar from '../assets/agent-avatar.png';
 
@@ -82,6 +86,33 @@ export function ProfilePage() {
   useEffect(() => {
     applyColorScheme(agentSettings.colorScheme);
   }, [agentSettings.colorScheme]);
+
+  useEffect(() => {
+    if (!currentUser?.id) {
+      return;
+    }
+
+    let isMounted = true;
+
+    const syncIntegrationSecrets = async () => {
+      try {
+        const record = await fetchIntegrationSecret(currentUser.id);
+        if (!isMounted) {
+          return;
+        }
+
+        setAgentSettings((previous) => applyIntegrationSecretToSettings(previous, record));
+      } catch (error) {
+        console.error('Integrations-Secrets konnten nicht geladen werden.', error);
+      }
+    };
+
+    void syncIntegrationSecrets();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [currentUser?.id]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {

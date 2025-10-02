@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useRef, useState, type ChangeEvent } from 'react';
+import { FormEvent, useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeftIcon } from '@heroicons/react/24/outline';
 import clsx from 'clsx';
@@ -10,9 +10,16 @@ import { loadAgentSettings, saveAgentSettings } from '../utils/storage';
 import { applyColorScheme } from '../utils/theme';
 import { sendWebhookMessage } from '../utils/webhook';
 import { prepareImageForStorage } from '../utils/image';
+import { useAuth } from '../context/AuthContext';
+import {
+  applyIntegrationSecretToSettings,
+  fetchIntegrationSecret,
+  upsertIntegrationSecret
+} from '../services/integrationSecretsService';
 
 export function SettingsPage() {
   const navigate = useNavigate();
+  const { currentUser } = useAuth();
   const [settings, setSettings] = useState<AgentSettings>(() => loadAgentSettings());
   const profileAvatarInputRef = useRef<HTMLInputElement | null>(null);
   const agentAvatarInputRef = useRef<HTMLInputElement | null>(null);
@@ -21,6 +28,7 @@ export function SettingsPage() {
     'idle' | 'pending' | 'success' | 'error'
   >('idle');
   const [webhookTestMessage, setWebhookTestMessage] = useState('');
+  const [isSyncingSecrets, setIsSyncingSecrets] = useState(false);
 
   const profileAvatarPreview = settings.profileAvatarImage ?? userAvatar;
   const agentAvatarPreview = settings.agentAvatarImage ?? agentAvatar;
@@ -99,8 +107,36 @@ export function SettingsPage() {
     applyColorScheme(settings.colorScheme);
   }, [settings.colorScheme]);
 
-  const handleSaveSettings = (event: FormEvent<HTMLFormElement>) => {
+  const hydrateSecrets = useCallback(async () => {
+    if (!currentUser?.id) {
+      return;
+    }
+
+    setIsSyncingSecrets(true);
+
+    try {
+      const record = await fetchIntegrationSecret(currentUser.id);
+      setSettings((prev) => applyIntegrationSecretToSettings(prev, record));
+    } catch (error) {
+      console.error('Integrations-Secrets konnten nicht geladen werden.', error);
+    } finally {
+      setIsSyncingSecrets(false);
+    }
+  }, [currentUser?.id]);
+
+  useEffect(() => {
+    void hydrateSecrets();
+  }, [hydrateSecrets]);
+
+  const handleSaveSettings = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!currentUser?.id) {
+      setSaveStatus('error');
+      setTimeout(() => setSaveStatus('idle'), 4000);
+      return;
+    }
+
+    setSaveStatus('idle');
     const payload: AgentSettings = {
       ...settings,
       profileAvatarImage: settings.profileAvatarImage ?? null,
@@ -108,11 +144,30 @@ export function SettingsPage() {
     };
 
     try {
-      saveAgentSettings(payload);
-      setSettings(payload);
+      const sanitized: AgentSettings = {
+        ...payload,
+        webhookUrl: payload.webhookUrl.trim(),
+        apiKey: payload.apiKey?.trim() || undefined,
+        basicAuthUsername: payload.basicAuthUsername?.trim() || undefined,
+        basicAuthPassword: payload.basicAuthPassword?.trim() || undefined,
+        oauthToken: payload.oauthToken?.trim() || undefined
+      };
+
+      await upsertIntegrationSecret({
+        profileId: currentUser.id,
+        webhookUrl: sanitized.webhookUrl,
+        authType: sanitized.authType,
+        apiKey: sanitized.authType === 'apiKey' ? sanitized.apiKey ?? null : null,
+        basicAuthUsername: sanitized.authType === 'basic' ? sanitized.basicAuthUsername ?? null : null,
+        basicAuthPassword: sanitized.authType === 'basic' ? sanitized.basicAuthPassword ?? null : null,
+        oauthToken: sanitized.authType === 'oauth' ? sanitized.oauthToken ?? null : null
+      });
+
+      saveAgentSettings(sanitized);
+      setSettings(sanitized);
       window.dispatchEvent(
         new CustomEvent('aiti-settings-update', {
-          detail: payload
+          detail: sanitized
         })
       );
       setSaveStatus('success');
@@ -212,12 +267,14 @@ export function SettingsPage() {
           </div>
         </header>
 
-        {saveStatus !== 'idle' && (
+        {(saveStatus !== 'idle' || isSyncingSecrets) && (
           <div
             role="status"
             className="mt-6 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/80"
           >
-            {saveStatus === 'success'
+            {isSyncingSecrets
+              ? 'Lade Integrations-Einstellungen …'
+              : saveStatus === 'success'
               ? 'Einstellungen wurden erfolgreich gespeichert.'
               : 'Einstellungen konnten nicht gespeichert werden. Bitte versuche es erneut.'}
           </div>
