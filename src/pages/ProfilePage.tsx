@@ -12,11 +12,15 @@ import {
 import clsx from 'clsx';
 import { useAuth } from '../context/AuthContext';
 import { AgentProfile } from '../types/auth';
-import { AgentSettings } from '../types/settings';
+import { AgentSettings, toSettingsEventPayload } from '../types/settings';
 import { loadAgentSettings, saveAgentSettings } from '../utils/storage';
 import { applyColorScheme } from '../utils/theme';
 import { sendWebhookMessage } from '../utils/webhook';
 import { prepareImageForStorage } from '../utils/image';
+import {
+  applyIntegrationSecretToSettings,
+  fetchIntegrationSecret
+} from '../services/integrationSecretsService';
 import userAvatar from '../assets/default-user.svg';
 import agentFallbackAvatar from '../assets/agent-avatar.png';
 
@@ -84,12 +88,39 @@ export function ProfilePage() {
   }, [agentSettings.colorScheme]);
 
   useEffect(() => {
+    if (!currentUser?.id) {
+      return;
+    }
+
+    let isMounted = true;
+
+    const syncIntegrationSecrets = async () => {
+      try {
+        const record = await fetchIntegrationSecret(currentUser.id);
+        if (!isMounted) {
+          return;
+        }
+
+        setAgentSettings((previous) => applyIntegrationSecretToSettings(previous, record));
+      } catch (error) {
+        console.error('Integrations-Secrets konnten nicht geladen werden.', error);
+      }
+    };
+
+    void syncIntegrationSecrets();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [currentUser?.id]);
+
+  useEffect(() => {
     if (typeof window === 'undefined') {
       return;
     }
 
     const handleSettingsUpdate = (event: WindowEventMap['aiti-settings-update']) => {
-      setAgentSettings(event.detail);
+      setAgentSettings((previous) => ({ ...previous, ...event.detail }));
       setColorSchemeError(null);
     };
 
@@ -303,9 +334,10 @@ export function ProfilePage() {
       saveAgentSettings(nextSettings);
       setAgentSettings(nextSettings);
       if (typeof window !== 'undefined') {
+        const eventPayload = toSettingsEventPayload(nextSettings);
         window.dispatchEvent(
           new CustomEvent('aiti-settings-update', {
-            detail: nextSettings
+            detail: eventPayload
           })
         );
       }

@@ -1,6 +1,7 @@
 import { AgentProfile, AuthUser } from '../types/auth';
 
-type StoredUser = AuthUser & { password: string };
+type LegacyStoredUser = AuthUser & { password?: string | null };
+type StoredUser = AuthUser;
 
 const createAgentId = () =>
   typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -9,89 +10,13 @@ const createAgentId = () =>
 
 const USERS_KEY = 'aiti-auth-users';
 const CURRENT_USER_KEY = 'aiti-auth-current-user';
+const LEGACY_USER_IDS = new Set(['admin-001', 'user-001', 'user-002']);
 
-const defaultUsers: StoredUser[] = [
-  {
-    id: 'admin-001',
-    name: 'AITI Admin',
-    email: 'admin@aiti.local',
-    password: 'admin',
-    role: 'admin',
-    isActive: true,
-    avatarUrl: null,
-    emailVerified: true,
-    bio: 'Verwaltet den AITI Explorer Agent.',
-    hasRemoteProfile: true,
-    agents: [
-      {
-        id: 'agent-admin-001',
-        name: 'Explorer Agent',
-        description: 'Unterstützt das Team bei Rechercheaufgaben und Marktanalysen.',
-        avatarUrl: null,
-        tools: ['Recherche', 'Analyse-Dashboards'],
-        webhookUrl: 'https://hooks.aiti.local/explorer'
-      },
-      {
-        id: 'agent-admin-002',
-        name: 'Onboarding Coach',
-        description: 'Automatisiert das Nutzer-Onboarding und beantwortet Standardfragen.',
-        avatarUrl: null,
-        tools: ['FAQ-Datenbank', 'Kalenderzugriff'],
-        webhookUrl: 'https://hooks.aiti.local/onboarding'
-      }
-    ]
-  },
-  {
-    id: 'user-001',
-    name: 'Svenja Beispiel',
-    email: 'svenja@example.com',
-    password: 'passwort123',
-    role: 'user',
-    isActive: true,
-    avatarUrl: null,
-    emailVerified: true,
-    bio: 'Produktmanagerin mit Fokus auf Automatisierungen.',
-    hasRemoteProfile: true,
-    agents: [
-      {
-        id: 'agent-user-001',
-        name: 'Marketing Scout',
-        description: 'Findet inspirierende Kampagnenideen und erstellt Content-Briefs.',
-        avatarUrl: null,
-        tools: ['Canva API', 'Keyword-Recherche'],
-        webhookUrl: 'https://hooks.aiti.local/marketing-scout'
-      }
-    ]
-  },
-  {
-    id: 'user-002',
-    name: 'Lukas Demo',
-    email: 'lukas@example.com',
-    password: 'passwort123',
-    role: 'user',
-    isActive: false,
-    avatarUrl: null,
-    emailVerified: false,
-    bio: 'Experimentiert gerade mit eigenen Agenten.',
-    hasRemoteProfile: true,
-    agents: [
-      {
-        id: 'agent-user-002',
-        name: 'Support Guide',
-        description: 'Beantwortet wiederkehrende Supportanfragen aus dem Ticketsystem.',
-        avatarUrl: null,
-        tools: ['Helpdesk-API'],
-        webhookUrl: 'https://hooks.aiti.local/support-guide'
-      }
-    ]
-  }
-];
-
-const withAgentDefaults = (user: StoredUser): StoredUser => ({
-  ...user,
-  agents: Array.isArray(user.agents)
-    ? (user.agents as Partial<AgentProfile>[]).map((agent, index) => ({
-        id: agent?.id ?? `${user.id}-${index}-${createAgentId()}`,
+const withAgentDefaults = (user: LegacyStoredUser): StoredUser => {
+  const { password: _legacyPassword, ...authLike } = user;
+  const agents = Array.isArray(authLike.agents)
+    ? (authLike.agents as Partial<AgentProfile>[]).map((agent, index) => ({
+        id: agent?.id ?? `${authLike.id}-${index}-${createAgentId()}`,
         name: agent?.name?.trim() && agent.name.length > 0 ? agent.name : `Agent ${index + 1}`,
         description: agent?.description ?? '',
         avatarUrl: agent?.avatarUrl ?? null,
@@ -100,8 +25,13 @@ const withAgentDefaults = (user: StoredUser): StoredUser => ({
           : [],
         webhookUrl: agent?.webhookUrl ?? ''
       }))
-    : []
-});
+    : [];
+
+  return {
+    ...authLike,
+    agents
+  };
+};
 
 const isBrowser = typeof window !== 'undefined';
 
@@ -120,30 +50,39 @@ const safeParse = <T>(value: string | null, fallback: T): T => {
 
 export const loadStoredUsers = (): StoredUser[] => {
   if (!isBrowser) {
-    return defaultUsers.map(withAgentDefaults);
+    return [];
   }
 
   const stored = window.localStorage.getItem(USERS_KEY);
-  const users = safeParse<StoredUser[]>(stored, defaultUsers);
+  const users = safeParse<LegacyStoredUser[]>(stored, []);
+  const filteredUsers = users.filter((user) => !LEGACY_USER_IDS.has(user.id));
+  const sanitizedUsers = filteredUsers.map(withAgentDefaults);
 
-  if (!stored) {
-    window.localStorage.setItem(USERS_KEY, JSON.stringify(users));
+  if (stored) {
+    if (sanitizedUsers.length) {
+      window.localStorage.setItem(USERS_KEY, JSON.stringify(sanitizedUsers));
+    } else {
+      window.localStorage.removeItem(USERS_KEY);
+    }
   }
 
-  return users.map(withAgentDefaults);
+  return sanitizedUsers;
 };
 
-export const saveStoredUsers = (users: StoredUser[]) => {
+export const saveStoredUsers = (users: LegacyStoredUser[]) => {
   if (!isBrowser) {
     return;
   }
 
-  window.localStorage.setItem(USERS_KEY, JSON.stringify(users));
+  const sanitizedUsers = users
+    .filter((user) => !LEGACY_USER_IDS.has(user.id))
+    .map(withAgentDefaults);
+  window.localStorage.setItem(USERS_KEY, JSON.stringify(sanitizedUsers));
 };
 
 export const loadCurrentUserId = (): string | null => {
   if (!isBrowser) {
-    return defaultUsers[0].id;
+    return null;
   }
 
   const stored = window.localStorage.getItem(CURRENT_USER_KEY);
@@ -163,9 +102,6 @@ export const saveCurrentUserId = (userId: string | null) => {
   window.localStorage.setItem(CURRENT_USER_KEY, userId);
 };
 
-export const toAuthUser = (user: StoredUser): AuthUser => {
-  const { password: _password, ...authUser } = user;
-  return authUser;
-};
+export const toAuthUser = (user: StoredUser): AuthUser => ({ ...user });
 
 export type { StoredUser };

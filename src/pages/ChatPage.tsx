@@ -26,6 +26,10 @@ import {
   updateChatRow,
   type FolderRecord
 } from '../services/chatService';
+import {
+  applyIntegrationSecretToSettings,
+  fetchIntegrationSecret
+} from '../services/integrationSecretsService';
 
 const formatTimestamp = (date: Date) =>
   date.toLocaleTimeString('de-DE', {
@@ -111,6 +115,33 @@ export function ChatPage() {
   const accountAvatar = currentUser?.avatarUrl ?? userAvatar;
 
   useEffect(() => {
+    if (!currentUser?.id) {
+      return;
+    }
+
+    let isActive = true;
+
+    const syncIntegrationSecrets = async () => {
+      try {
+        const record = await fetchIntegrationSecret(currentUser.id);
+        if (!isActive) {
+          return;
+        }
+
+        setSettings((previous) => applyIntegrationSecretToSettings(previous, record));
+      } catch (error) {
+        console.error('Integrations-Secrets konnten nicht geladen werden.', error);
+      }
+    };
+
+    void syncIntegrationSecrets();
+
+    return () => {
+      isActive = false;
+    };
+  }, [currentUser?.id]);
+
+  useEffect(() => {
     if (!currentUser || currentUser.agents.length === 0) {
       setActiveAgentId(null);
       return;
@@ -164,7 +195,7 @@ export function ChatPage() {
     }
 
     const handleSettingsUpdate = (event: WindowEventMap['aiti-settings-update']) => {
-      setSettings(event.detail);
+      setSettings((previous) => ({ ...previous, ...event.detail }));
     };
 
     window.addEventListener('aiti-settings-update', handleSettingsUpdate);
