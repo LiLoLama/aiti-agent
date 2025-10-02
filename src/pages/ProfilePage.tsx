@@ -12,7 +12,7 @@ import {
 import clsx from 'clsx';
 import { useAuth } from '../context/AuthContext';
 import { AgentProfile } from '../types/auth';
-import { AgentSettings } from '../types/settings';
+import { AgentSettings, toSettingsEventPayload } from '../types/settings';
 import { loadAgentSettings, saveAgentSettings } from '../utils/storage';
 import { applyColorScheme } from '../utils/theme';
 import { sendWebhookMessage } from '../utils/webhook';
@@ -120,7 +120,7 @@ export function ProfilePage() {
     }
 
     const handleSettingsUpdate = (event: WindowEventMap['aiti-settings-update']) => {
-      setAgentSettings(event.detail);
+      setAgentSettings((previous) => ({ ...previous, ...event.detail }));
       setColorSchemeError(null);
     };
 
@@ -334,9 +334,10 @@ export function ProfilePage() {
       saveAgentSettings(nextSettings);
       setAgentSettings(nextSettings);
       if (typeof window !== 'undefined') {
+        const eventPayload = toSettingsEventPayload(nextSettings);
         window.dispatchEvent(
           new CustomEvent('aiti-settings-update', {
-            detail: nextSettings
+            detail: eventPayload
           })
         );
       }

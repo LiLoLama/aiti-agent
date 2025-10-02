@@ -23,3 +23,15 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   authType: 'none',
   colorScheme: 'dark'
 };
+
+export type AgentSettingsEventPayload = Omit<
+  AgentSettings,
+  'apiKey' | 'basicAuthPassword' | 'oauthToken'
+>;
+
+export const toSettingsEventPayload = (
+  settings: AgentSettings
+): AgentSettingsEventPayload => {
+  const { apiKey: _apiKey, basicAuthPassword: _basic, oauthToken: _oauth, ...payload } = settings;
+  return payload;
+};

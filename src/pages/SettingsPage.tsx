@@ -5,7 +5,7 @@ import clsx from 'clsx';
 
 import agentAvatar from '../assets/agent-avatar.png';
 import userAvatar from '../assets/default-user.svg';
-import { AgentAuthType, AgentSettings } from '../types/settings';
+import { AgentAuthType, AgentSettings, toSettingsEventPayload } from '../types/settings';
 import { loadAgentSettings, saveAgentSettings } from '../utils/storage';
 import { applyColorScheme } from '../utils/theme';
 import { sendWebhookMessage } from '../utils/webhook';
@@ -165,9 +165,10 @@ export function SettingsPage() {
 
       saveAgentSettings(sanitized);
       setSettings(sanitized);
+      const eventPayload = toSettingsEventPayload(sanitized);
       window.dispatchEvent(
         new CustomEvent('aiti-settings-update', {
-          detail: sanitized
+          detail: eventPayload
         })
       );
       setSaveStatus('success');

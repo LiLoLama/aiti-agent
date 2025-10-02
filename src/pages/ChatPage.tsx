@@ -195,7 +195,7 @@ export function ChatPage() {
     }
 
     const handleSettingsUpdate = (event: WindowEventMap['aiti-settings-update']) => {
-      setSettings(event.detail);
+      setSettings((previous) => ({ ...previous, ...event.detail }));
     };
 
     window.addEventListener('aiti-settings-update', handleSettingsUpdate);
