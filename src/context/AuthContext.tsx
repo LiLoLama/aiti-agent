@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode
 } from 'react';
@@ -183,6 +184,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [users, setUsers] = useState<AuthUser[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const lastSessionAccessTokenRef = useRef<string | null>(null);
 
   const ensureSession = useCallback(async (): Promise<Session> => {
     const { data, error } = await supabase.auth.getSession();
@@ -276,6 +278,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const handleSession = useCallback(
     async (session: Session | null, options?: { displayName?: string; email?: string }) => {
+      lastSessionAccessTokenRef.current = session?.access_token ?? null;
       if (!session) {
         setCurrentUser(null);
         setUsers([]);
@@ -340,8 +343,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: authListener } = supabase.auth.onAuthStateChange(
       (event: AuthChangeEvent, session: Session | null) => {
         if (event === 'TOKEN_REFRESHED') {
+          lastSessionAccessTokenRef.current = session?.access_token ?? null;
           return;
         }
+
+        if (
+          session?.access_token === lastSessionAccessTokenRef.current &&
+          (event === 'SIGNED_IN' || event === 'INITIAL_SESSION')
+        ) {
+          return;
+        }
+
         setIsLoading(true);
         void handleSession(session).finally(() => {
           if (isActive) {
