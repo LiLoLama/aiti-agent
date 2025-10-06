@@ -31,14 +31,88 @@ export interface ChatUpdatePayload {
   lastMessageAt?: string | null;
 }
 
+const sanitizeAttachment = (candidate: unknown): ChatAttachment | null => {
+  if (!candidate || typeof candidate !== 'object') {
+    return null;
+  }
+
+  const value = candidate as Partial<ChatAttachment> & Record<string, unknown>;
+
+  if (typeof value.id !== 'string') {
+    return null;
+  }
+
+  const name = typeof value.name === 'string' && value.name.trim().length > 0 ? value.name : 'Anhang';
+  const type = typeof value.type === 'string' ? value.type : 'application/octet-stream';
+  const url = typeof value.url === 'string' ? value.url : '';
+  const size = typeof value.size === 'number' && Number.isFinite(value.size) ? value.size : 0;
+  const kind = value.kind === 'audio' || value.kind === 'file' ? value.kind : 'file';
+
+  const attachment: ChatAttachment = {
+    id: value.id,
+    name,
+    type,
+    url,
+    size,
+    kind
+  };
+
+  if (kind === 'audio' && typeof value.durationSeconds === 'number' && Number.isFinite(value.durationSeconds)) {
+    attachment.durationSeconds = value.durationSeconds;
+  }
+
+  return attachment;
+};
+
+const normalizeMessagesForStorage = (messages: ChatMessage[]) =>
+  messages.map((message) => {
+    const attachments = Array.isArray(message.attachments)
+      ? message.attachments
+          .map((attachment) => sanitizeAttachment(attachment))
+          .filter((attachment): attachment is ChatAttachment => Boolean(attachment))
+      : undefined;
+
+    return {
+      id: message.id,
+      author: message.author,
+      content: message.content,
+      timestamp: message.timestamp,
+      ...(attachments && attachments.length > 0 ? { attachments } : {})
+    } satisfies ChatMessage;
+  });
+
+const coerceToMessageArray = (value: unknown): unknown[] | null => {
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : null;
+    } catch (error) {
+      console.warn('Konnte Nachrichtenverlauf nicht aus JSON-String lesen.', error);
+      return null;
+    }
+  }
+
+  if (value && typeof value === 'object' && Array.isArray((value as any).messages)) {
+    return (value as any).messages as unknown[];
+  }
+
+  return null;
+};
+
 const parseMessages = (value: unknown): ChatMessage[] => {
-  if (!Array.isArray(value)) {
+  const rawEntries = coerceToMessageArray(value);
+
+  if (!rawEntries) {
     return [];
   }
 
   const messages: ChatMessage[] = [];
 
-  for (const entry of value) {
+  for (const entry of rawEntries) {
     if (!entry || typeof entry !== 'object') {
       continue;
     }
@@ -51,10 +125,9 @@ const parseMessages = (value: unknown): ChatMessage[] => {
       typeof candidate.timestamp === 'string'
     ) {
       const attachments = Array.isArray(candidate.attachments)
-        ? candidate.attachments.filter(
-            (attachment): attachment is ChatAttachment =>
-              Boolean(attachment) && typeof attachment === 'object' && typeof (attachment as any).id === 'string'
-          )
+        ? candidate.attachments
+            .map((attachment) => sanitizeAttachment(attachment))
+            .filter((attachment): attachment is ChatAttachment => Boolean(attachment))
         : undefined;
 
       messages.push({
@@ -249,7 +322,7 @@ const buildChatInsertPayload = (profileId: string, chat: Chat) => {
     id: chat.id,
     profile_id: profileId,
     title: chat.name,
-    messages: chat.messages,
+    messages: normalizeMessagesForStorage(chat.messages),
     folder_id: chat.folderId ?? null,
     summary: chat.preview,
     last_message_at: nowIso
@@ -320,8 +393,8 @@ export const updateChatRow = async (chatId: string, updates: ChatUpdatePayload) 
     payload.folder_id = updates.folderId ?? null;
   }
 
-  if (updates.messages) {
-    payload.messages = updates.messages;
+  if (Array.isArray(updates.messages)) {
+    payload.messages = normalizeMessagesForStorage(updates.messages);
   }
 
   if (typeof updates.summary === 'string') {
