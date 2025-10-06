@@ -1,5 +1,8 @@
 import { MicrophoneIcon, PaperClipIcon } from '@heroicons/react/24/outline';
 import clsx from 'clsx';
+import ReactMarkdown from 'react-markdown';
+import type { Components } from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { ChatMessage } from '../data/sampleChats';
 
 interface ChatMessageBubbleProps {
@@ -8,6 +11,71 @@ interface ChatMessageBubbleProps {
   agentAvatar: string;
   userAvatar: string;
 }
+
+const markdownComponents: Components = {
+  p({ children }) {
+    return <p className="whitespace-pre-wrap leading-relaxed last:mb-0">{children}</p>;
+  },
+  strong({ children }) {
+    return <strong className="font-semibold">{children}</strong>;
+  },
+  em({ children }) {
+    return <em className="italic">{children}</em>;
+  },
+  code({ inline, children, ...props }: any) {
+    if (inline) {
+      return (
+        <code
+          {...props}
+          className={clsx(
+            'rounded bg-black/20 px-1 py-0.5 font-mono text-[0.85em]',
+            props.className
+          )}
+        >
+          {children}
+        </code>
+      );
+    }
+
+    return (
+      <code
+        {...props}
+        className={clsx('block whitespace-pre-wrap font-mono text-sm', props.className)}
+      >
+        {children}
+      </code>
+    );
+  },
+  pre({ children }) {
+    return <pre className="overflow-x-auto rounded-2xl bg-black/20 px-3 py-2">{children}</pre>;
+  },
+  a({ children, href }) {
+    return (
+      <a href={href} className="underline decoration-2 underline-offset-2">
+        {children}
+      </a>
+    );
+  },
+  ul({ children }) {
+    return <ul className="list-disc space-y-1 pl-5 text-left">{children}</ul>;
+  },
+  ol({ children }) {
+    return <ol className="list-decimal space-y-1 pl-5 text-left">{children}</ol>;
+  },
+  li({ children }) {
+    return <li className="whitespace-normal">{children}</li>;
+  },
+  blockquote({ children }) {
+    return (
+      <blockquote className="border-l-4 border-white/20 pl-4 italic opacity-90">
+        {children}
+      </blockquote>
+    );
+  },
+  hr() {
+    return <hr className="border-t border-white/10" />;
+  },
+};
 
 export function ChatMessageBubble({ message, isAgent, agentAvatar, userAvatar }: ChatMessageBubbleProps) {
   const formatFileSize = (size?: number) => {
@@ -44,7 +112,16 @@ export function ChatMessageBubble({ message, isAgent, agentAvatar, userAvatar }:
               : 'bg-gradient-to-r from-brand-gold via-brand-deep to-brand-gold text-surface-base shadow-glow'
           )}
         >
-          {message.content}
+          <div
+            className={clsx(
+              'space-y-3 break-words',
+              isAgent ? 'text-left' : 'text-right'
+            )}
+          >
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+              {message.content}
+            </ReactMarkdown>
+          </div>
         </div>
         {message.attachments && message.attachments.length > 0 && (
           <div
