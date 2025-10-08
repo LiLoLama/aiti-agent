@@ -19,6 +19,7 @@ import { sendWebhookMessage } from '../utils/webhook';
 import { applyColorScheme } from '../utils/theme';
 import { useAuth } from '../context/AuthContext';
 import {
+  AgentConversationUpdatePayload,
   deleteAgentConversation,
   fetchAgentConversations,
   mapConversationToChat,
@@ -50,6 +51,11 @@ const blobToDataUrl = (blob: Blob): Promise<string> =>
   });
 
 const toPreview = (value: string) => (value.length > 140 ? `${value.slice(0, 137)}…` : value);
+
+const normalizeTools = (tools: string[] | null | undefined): string[] =>
+  Array.from(
+    new Set((tools ?? []).map((tool) => tool.trim()).filter((tool) => tool.length > 0))
+  ).sort();
 
 const createId = () => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -211,7 +217,8 @@ export function ChatPage() {
                 agentName,
                 agentDescription: agent.description ?? '',
                 agentAvatarUrl: agent.avatarUrl ?? null,
-                agentWebhookUrl: agent.webhookUrl ?? null
+                agentWebhookUrl: agent.webhookUrl ?? null,
+                agentTools: agent.tools
               })
             );
             return;
@@ -220,7 +227,7 @@ export function ChatPage() {
           const chat = mapConversationToChat(record, agentName, defaultPreview);
           nextConversations[agentId] = chat;
 
-          const metadataUpdates: Record<string, string | null> = {};
+          const metadataUpdates: AgentConversationUpdatePayload = {};
           if (record.agent_name !== agentName) {
             metadataUpdates.agentName = agentName;
           }
@@ -232,6 +239,15 @@ export function ChatPage() {
           }
           if ((record.agent_webhook_url ?? null) !== (agent.webhookUrl ?? null)) {
             metadataUpdates.agentWebhookUrl = agent.webhookUrl ?? null;
+          }
+
+          const recordTools = normalizeTools(record.agent_tools);
+          const nextTools = normalizeTools(agent.tools);
+          if (
+            recordTools.length !== nextTools.length ||
+            recordTools.some((tool, index) => tool !== nextTools[index])
+          ) {
+            metadataUpdates.agentTools = agent.tools;
           }
 
           if (Object.keys(metadataUpdates).length > 0) {

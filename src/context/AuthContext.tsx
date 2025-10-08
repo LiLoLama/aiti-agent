@@ -18,6 +18,29 @@ import {
   RegistrationPayload,
   UserRole
 } from '../types/auth';
+import { supabase } from '../services/supabaseClient';
+
+type ProfileRow = {
+  id: string;
+  email: string | null;
+  display_name: string | null;
+  name: string | null;
+  avatar_url: string | null;
+  role: string | null;
+  bio: string | null;
+  email_verified: string | null;
+  is_active: boolean | null;
+};
+
+type AgentConversationRow = {
+  profile_id: string | null;
+  agent_id: string | null;
+  agent_name: string | null;
+  agent_description: string | null;
+  agent_avatar_url: string | null;
+  agent_webhook_url: string | null;
+  agent_tools: unknown;
+};
 
 interface AuthContextValue {
   currentUser: AuthUser | null;
@@ -33,210 +56,133 @@ interface AuthContextValue {
   removeAgent: (agentId: string) => Promise<void>;
 }
 
-const USERS_STORAGE_KEY = 'aiti-auth-users';
-const SESSION_STORAGE_KEY = 'aiti-auth-session';
-
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
-type StoredAgentProfile = AgentProfile;
-
-type StoredAuthUser = Omit<AuthUser, 'hasRemoteProfile'> & {
-  password: string;
-};
-
-const generateId = () => {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-
-  const randomSegment = () => Math.random().toString(16).slice(2, 10).padEnd(8, '0');
-  return `${randomSegment()}-${randomSegment().slice(0, 4)}-${randomSegment().slice(0, 4)}-${randomSegment().slice(0, 4)}-${randomSegment()}${randomSegment()}`.slice(0, 36);
-};
-
-const sanitizeTools = (tools: string[] | undefined): string[] => {
+const sanitizeTools = (tools: unknown): string[] => {
   if (!Array.isArray(tools)) {
     return [];
   }
 
-  const normalized = tools
-    .map((tool) => tool.trim())
-    .filter((tool) => tool.length > 0);
+  const sanitized = tools
+    .filter((tool): tool is string => typeof tool === 'string' && tool.trim().length > 0)
+    .map((tool) => tool.trim());
 
-  return Array.from(new Set(normalized));
+  return Array.from(new Set(sanitized));
 };
 
-const sanitizeAgent = (agent: AgentProfile): AgentProfile => ({
-  id: agent.id,
-  name: agent.name.trim().length > 0 ? agent.name.trim() : 'Unbenannter Agent',
-  description: agent.description?.trim() ?? '',
-  avatarUrl: agent.avatarUrl ?? null,
-  tools: sanitizeTools(agent.tools),
-  webhookUrl: agent.webhookUrl?.trim() ?? ''
+const sanitizeAgentDraft = (draft: AgentDraft) => ({
+  name: draft.name?.trim().length ? draft.name.trim() : 'Unbenannter Agent',
+  description: draft.description?.trim() ?? '',
+  avatarUrl: draft.avatarUrl ?? null,
+  tools: sanitizeTools(draft.tools),
+  webhookUrl: draft.webhookUrl?.trim() ?? ''
 });
 
-const sanitizeAgents = (agents: StoredAgentProfile[] | undefined): StoredAgentProfile[] => {
-  if (!agents) {
-    return [];
-  }
-
-  return agents
-    .filter((agent): agent is StoredAgentProfile => Boolean(agent) && typeof agent.id === 'string')
-    .map((agent) => sanitizeAgent(agent));
-};
-
-const toAuthUser = (stored: StoredAuthUser): AuthUser => ({
-  id: stored.id,
-  name: stored.name,
-  email: stored.email,
-  role: stored.role,
-  isActive: stored.isActive,
-  avatarUrl: stored.avatarUrl ?? null,
-  emailVerified: stored.emailVerified,
-  agents: sanitizeAgents(stored.agents),
-  bio: stored.bio,
-  hasRemoteProfile: true
-});
-
-const createDefaultUser = (): StoredAuthUser => ({
-  id: generateId(),
-  name: 'Demo Nutzer',
-  email: 'demo@aiti.local',
-  role: 'admin',
-  isActive: true,
-  avatarUrl: null,
-  emailVerified: true,
-  agents: [],
-  bio: '',
-  password: 'aiti-demo'
-});
-
-const readStoredUsers = (): StoredAuthUser[] => {
-  if (typeof window === 'undefined') {
-    return [createDefaultUser()];
-  }
-
-  const raw = window.localStorage.getItem(USERS_STORAGE_KEY);
-  if (!raw) {
-    const defaults = [createDefaultUser()];
-    window.localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(defaults));
-    return defaults;
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as Array<Partial<StoredAuthUser>>;
-    if (!Array.isArray(parsed) || parsed.length === 0) {
-      const defaults = [createDefaultUser()];
-      window.localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(defaults));
-      return defaults;
-    }
-
-    return parsed
-      .filter((candidate): candidate is Partial<StoredAuthUser> => Boolean(candidate) && typeof candidate === 'object')
-      .map((candidate) => {
-        const base: StoredAuthUser = {
-          id: typeof candidate.id === 'string' && candidate.id.trim().length > 0 ? candidate.id : generateId(),
-          name: typeof candidate.name === 'string' && candidate.name.trim().length > 0 ? candidate.name.trim() : 'Neuer Nutzer',
-          email:
-            typeof candidate.email === 'string' && candidate.email.trim().length > 0
-              ? candidate.email.trim().toLowerCase()
-              : 'demo@aiti.local',
-          role: candidate.role === 'admin' ? 'admin' : 'user',
-          isActive: typeof candidate.isActive === 'boolean' ? candidate.isActive : true,
-          avatarUrl: typeof candidate.avatarUrl === 'string' ? candidate.avatarUrl : null,
-          emailVerified: typeof candidate.emailVerified === 'boolean' ? candidate.emailVerified : false,
-          agents: sanitizeAgents(candidate.agents as StoredAgentProfile[]),
-          bio: typeof candidate.bio === 'string' ? candidate.bio : '',
-          password:
-            typeof candidate.password === 'string' && candidate.password.length > 0
-              ? candidate.password
-              : 'aiti-demo'
-        };
-
-        return base;
-      });
-  } catch (error) {
-    console.error('Konnte gespeicherte Nutzer nicht lesen.', error);
-    const defaults = [createDefaultUser()];
-    window.localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(defaults));
-    return defaults;
-  }
-};
-
-const persistStoredUsers = (users: StoredAuthUser[]) => {
-  if (typeof window === 'undefined') {
-    return;
-  }
-
-  window.localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users));
-};
-
-const readActiveSession = (): string | null => {
-  if (typeof window === 'undefined') {
+const mapConversationRowToAgent = (row: AgentConversationRow): AgentProfile | null => {
+  if (!row.agent_id) {
     return null;
   }
 
-  const stored = window.localStorage.getItem(SESSION_STORAGE_KEY);
-  return stored && stored.trim().length > 0 ? stored : null;
+  return {
+    id: row.agent_id,
+    name: row.agent_name?.trim().length ? row.agent_name.trim() : 'Unbenannter Agent',
+    description: row.agent_description?.trim() ?? '',
+    avatarUrl: row.agent_avatar_url ?? null,
+    tools: sanitizeTools(row.agent_tools),
+    webhookUrl: row.agent_webhook_url?.trim() ?? ''
+  };
 };
 
-const persistActiveSession = (sessionId: string | null) => {
-  if (typeof window === 'undefined') {
-    return;
-  }
+const resolveUserRole = (value: string | null | undefined): UserRole => (value === 'admin' ? 'admin' : 'user');
 
-  if (sessionId) {
-    window.localStorage.setItem(SESSION_STORAGE_KEY, sessionId);
-  } else {
-    window.localStorage.removeItem(SESSION_STORAGE_KEY);
-  }
+const toBoolean = (value: string | null | undefined) => value?.toLowerCase() === 'true';
+
+const mapProfileRowToAuthUser = (row: ProfileRow, agents: AgentProfile[]): AuthUser => {
+  const nameCandidate = [row.display_name, row.name, row.email]
+    .find((candidate) => typeof candidate === 'string' && candidate.trim().length > 0)
+    ?.trim();
+
+  const normalizedEmail = typeof row.email === 'string' && row.email.length > 0 ? row.email : '';
+
+  return {
+    id: row.id,
+    name: nameCandidate ?? 'AITI Nutzer',
+    email: normalizedEmail,
+    role: resolveUserRole(row.role),
+    isActive: typeof row.is_active === 'boolean' ? row.is_active : true,
+    avatarUrl: row.avatar_url ?? null,
+    emailVerified: toBoolean(row.email_verified),
+    agents,
+    bio: row.bio ?? '',
+    hasRemoteProfile: true
+  };
 };
 
-const ensureUniqueEmail = (users: StoredAuthUser[], email: string, excludeUserId?: string) => {
-  const normalizedEmail = email.trim().toLowerCase();
-  const conflict = users.some((user) => user.email === normalizedEmail && user.id !== excludeUserId);
-  if (conflict) {
-    throw new Error('Diese E-Mail-Adresse wird bereits verwendet.');
-  }
-};
+const createUuid = () =>
+  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${Math.random().toString(16).slice(2, 10)}-${Math.random().toString(16).slice(2, 6)}-${Math.random()
+        .toString(16)
+        .slice(2, 6)}-${Math.random().toString(16).slice(2, 6)}-${Math.random().toString(16).slice(2, 14)}`;
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [users, setUsers] = useState<AuthUser[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [sessionUserId, setSessionUserId] = useState<string | null>(null);
-  const storedUsersRef = useRef<StoredAuthUser[]>([]);
+  const isMountedRef = useRef(true);
 
   useEffect(() => {
-    const storedUsers = readStoredUsers();
-    storedUsersRef.current = storedUsers;
-    const mappedUsers = storedUsers.map(toAuthUser);
-    setUsers(mappedUsers);
-
-    const activeSession = readActiveSession();
-    setSessionUserId(activeSession);
-
-    if (activeSession) {
-      const matching = storedUsers.find((user) => user.id === activeSession);
-      if (matching && matching.isActive) {
-        setCurrentUser(toAuthUser(matching));
-      }
-    }
-
-    setIsLoading(false);
+    return () => {
+      isMountedRef.current = false;
+    };
   }, []);
 
-  const updateStateFromUsers = useCallback(
-    (nextUsers: StoredAuthUser[], nextSessionId: string | null) => {
-      storedUsersRef.current = nextUsers;
-      persistStoredUsers(nextUsers);
-      setUsers(nextUsers.map(toAuthUser));
+  const fetchAndSetUsers = useCallback(
+    async (activeUserId?: string | null) => {
+      const targetUserId = activeUserId ?? sessionUserId ?? null;
 
-      if (nextSessionId) {
-        const activeUser = nextUsers.find((user) => user.id === nextSessionId);
-        setCurrentUser(activeUser ? toAuthUser(activeUser) : null);
-      } else if (sessionUserId) {
-        const activeUser = nextUsers.find((user) => user.id === sessionUserId);
-        setCurrentUser(activeUser ? toAuthUser(activeUser) : null);
+      const { data: profileRows, error: profilesError } = await supabase.from('profiles').select('*');
+      if (profilesError) {
+        throw new Error(profilesError.message ?? 'Profile konnten nicht geladen werden.');
+      }
+
+      const { data: conversationRows, error: conversationsError } = await supabase
+        .from('agent_conversations')
+        .select(
+          'profile_id, agent_id, agent_name, agent_description, agent_avatar_url, agent_webhook_url, agent_tools'
+        );
+      if (conversationsError) {
+        throw new Error(conversationsError.message ?? 'Agenten konnten nicht geladen werden.');
+      }
+
+      const groupedAgents = new Map<string, AgentProfile[]>();
+      for (const row of conversationRows ?? []) {
+        if (!row?.profile_id) {
+          continue;
+        }
+
+        const agent = mapConversationRowToAgent(row);
+        if (!agent) {
+          continue;
+        }
+
+        const existing = groupedAgents.get(row.profile_id) ?? [];
+        existing.push(agent);
+        groupedAgents.set(row.profile_id, existing);
+      }
+
+      const mappedUsers = (profileRows ?? []).map((row) => mapProfileRowToAuthUser(row, groupedAgents.get(row.id) ?? []));
+
+      if (!isMountedRef.current) {
+        return;
+      }
+
+      setUsers(mappedUsers);
+
+      if (targetUserId) {
+        const active = mappedUsers.find((user) => user.id === targetUserId) ?? null;
+        setCurrentUser(active);
       } else {
         setCurrentUser(null);
       }
@@ -244,57 +190,127 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [sessionUserId]
   );
 
-  const login = useCallback(async ({ email, password }: AuthCredentials) => {
-    const normalizedEmail = email.trim().toLowerCase();
-    const storedUsers = storedUsersRef.current;
-    const matching = storedUsers.find((user) => user.email === normalizedEmail);
+  useEffect(() => {
+    let isSubscribed = true;
 
-    if (!matching || matching.password !== password) {
-      throw new Error('Ungültige Anmeldedaten.');
-    }
+    const initialize = async () => {
+      setIsLoading(true);
+      try {
+        const { data: sessionResponse, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError) {
+          throw sessionError;
+        }
 
-    if (!matching.isActive) {
-      throw new Error('Dieser Account ist deaktiviert. Bitte wende dich an eine Administratorin.');
-    }
+        if (!isSubscribed) {
+          return;
+        }
 
-    persistActiveSession(matching.id);
-    setSessionUserId(matching.id);
-    setCurrentUser(toAuthUser(matching));
-  }, []);
+        const activeUserId = sessionResponse.session?.user?.id ?? null;
+        setSessionUserId(activeUserId);
+        await fetchAndSetUsers(activeUserId);
+      } catch (error) {
+        console.error('Konnte Auth-Daten nicht laden.', error);
+        if (isMountedRef.current) {
+          setUsers([]);
+          setCurrentUser(null);
+        }
+      } finally {
+        if (isMountedRef.current) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    void initialize();
+
+    const { data: subscription } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!isMountedRef.current) {
+        return;
+      }
+
+      const nextUserId = session?.user?.id ?? null;
+      setSessionUserId(nextUserId);
+      void fetchAndSetUsers(nextUserId);
+    });
+
+    return () => {
+      isSubscribed = false;
+      subscription?.subscription.unsubscribe();
+    };
+  }, [fetchAndSetUsers]);
+
+  const login = useCallback(
+    async ({ email, password }: AuthCredentials) => {
+      const normalizedEmail = email.trim().toLowerCase();
+      const { data, error } = await supabase.auth.signInWithPassword({ email: normalizedEmail, password });
+      if (error) {
+        throw new Error(error.message ?? 'Anmeldung fehlgeschlagen.');
+      }
+
+      const userId = data.user?.id ?? null;
+      setSessionUserId(userId);
+      await fetchAndSetUsers(userId);
+    },
+    [fetchAndSetUsers]
+  );
 
   const register = useCallback(
     async ({ name, email, password }: RegistrationPayload) => {
-      const storedUsers = storedUsersRef.current;
-      ensureUniqueEmail(storedUsers, email);
+      const normalizedEmail = email.trim().toLowerCase();
+      const trimmedName = name.trim();
 
-      const newUser: StoredAuthUser = {
-        id: generateId(),
-        name: name.trim().length > 0 ? name.trim() : 'Neuer Nutzer',
-        email: email.trim().toLowerCase(),
-        role: 'user',
-        isActive: true,
-        avatarUrl: null,
-        emailVerified: false,
-        agents: [],
-        bio: '',
-        password
-      };
+      const { data, error } = await supabase.auth.signUp({
+        email: normalizedEmail,
+        password,
+        options: {
+          data: {
+            display_name: trimmedName,
+            name: trimmedName
+          }
+        }
+      });
 
-      const nextUsers = [...storedUsers, newUser];
-      persistActiveSession(newUser.id);
-      setSessionUserId(newUser.id);
-      updateStateFromUsers(nextUsers, newUser.id);
+      if (error) {
+        throw new Error(error.message ?? 'Registrierung fehlgeschlagen.');
+      }
 
-      return { sessionExists: false };
+      const supabaseUser = data.user;
+      if (supabaseUser) {
+        const { error: profileError } = await supabase.from('profiles').upsert({
+          id: supabaseUser.id,
+          email: supabaseUser.email ?? normalizedEmail,
+          display_name: trimmedName || supabaseUser.email || 'Neuer Nutzer',
+          name: trimmedName || null,
+          avatar_url: null,
+          role: 'user',
+          bio: '',
+          email_verified: supabaseUser.email_confirmed_at ? 'true' : 'false',
+          is_active: true
+        });
+
+        if (profileError) {
+          throw new Error(profileError.message ?? 'Profil konnte nicht gespeichert werden.');
+        }
+
+        await fetchAndSetUsers(supabaseUser.id);
+      } else {
+        await fetchAndSetUsers(null);
+      }
+
+      return { sessionExists: Boolean(data.session) };
     },
-    [updateStateFromUsers]
+    [fetchAndSetUsers]
   );
 
   const logout = useCallback(async () => {
-    persistActiveSession(null);
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      throw new Error(error.message ?? 'Abmeldung fehlgeschlagen.');
+    }
+
     setSessionUserId(null);
-    setCurrentUser(null);
-  }, []);
+    await fetchAndSetUsers(null);
+  }, [fetchAndSetUsers]);
 
   const updateProfile = useCallback(
     async (updates: ProfileUpdatePayload) => {
@@ -302,58 +318,57 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error('Kein aktiver Nutzer gefunden.');
       }
 
-      const storedUsers = storedUsersRef.current;
-      const index = storedUsers.findIndex((user) => user.id === currentUser.id);
-      if (index === -1) {
-        throw new Error('Nutzer konnte nicht aktualisiert werden.');
-      }
-
-      const updatedUser: StoredAuthUser = {
-        ...storedUsers[index],
-        name: updates.name?.trim()?.length ? updates.name.trim() : storedUsers[index].name,
-        avatarUrl: updates.avatarUrl ?? storedUsers[index].avatarUrl,
-        bio:
-          typeof updates.bio === 'string'
-            ? updates.bio
-            : typeof storedUsers[index].bio === 'string'
-            ? storedUsers[index].bio
-            : '',
-        emailVerified:
-          typeof updates.emailVerified === 'boolean' ? updates.emailVerified : storedUsers[index].emailVerified
+      const trimmedName = updates.name?.trim();
+      const preparedUpdates: Record<string, unknown> = {
+        updated_at: new Date().toISOString()
       };
 
-      const nextUsers = [...storedUsers];
-      nextUsers[index] = updatedUser;
-      updateStateFromUsers(nextUsers, currentUser.id);
+      if (typeof trimmedName === 'string' && trimmedName.length > 0) {
+        preparedUpdates.display_name = trimmedName;
+        preparedUpdates.name = trimmedName;
+      }
+
+      if (updates.avatarUrl !== undefined) {
+        preparedUpdates.avatar_url = updates.avatarUrl;
+      }
+
+      if (typeof updates.bio === 'string') {
+        preparedUpdates.bio = updates.bio;
+      }
+
+      if (typeof updates.emailVerified === 'boolean') {
+        preparedUpdates.email_verified = updates.emailVerified ? 'true' : 'false';
+      }
+
+      const { error } = await supabase.from('profiles').update(preparedUpdates).eq('id', currentUser.id);
+      if (error) {
+        throw new Error(error.message ?? 'Profil konnte nicht aktualisiert werden.');
+      }
+
+      await fetchAndSetUsers(currentUser.id);
     },
-    [currentUser, updateStateFromUsers]
+    [currentUser, fetchAndSetUsers]
   );
 
   const toggleUserActive = useCallback(
     async (userId: string, nextActive: boolean) => {
-      const storedUsers = storedUsersRef.current;
-      const index = storedUsers.findIndex((user) => user.id === userId);
-      if (index === -1) {
-        throw new Error('Nutzer wurde nicht gefunden.');
+      const { error } = await supabase
+        .from('profiles')
+        .update({ is_active: nextActive, updated_at: new Date().toISOString() })
+        .eq('id', userId);
+
+      if (error) {
+        throw new Error(error.message ?? 'Nutzerstatus konnte nicht geändert werden.');
       }
 
-      const updatedUser: StoredAuthUser = {
-        ...storedUsers[index],
-        isActive: nextActive
-      };
-
-      const nextUsers = [...storedUsers];
-      nextUsers[index] = updatedUser;
-
-      const nextSessionId = nextActive ? sessionUserId : sessionUserId === userId ? null : sessionUserId;
-      if (sessionUserId === userId && !nextActive) {
-        persistActiveSession(null);
-        setSessionUserId(null);
+      if (currentUser?.id === userId && !nextActive) {
+        await logout();
+        return;
       }
 
-      updateStateFromUsers(nextUsers, nextSessionId);
+      await fetchAndSetUsers(currentUser?.id ?? sessionUserId ?? null);
     },
-    [sessionUserId, updateStateFromUsers]
+    [currentUser?.id, fetchAndSetUsers, logout, sessionUserId]
   );
 
   const addAgent = useCallback(
@@ -362,27 +377,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error('Kein aktiver Nutzer gefunden.');
       }
 
-      const storedUsers = storedUsersRef.current;
-      const index = storedUsers.findIndex((user) => user.id === currentUser.id);
-      if (index === -1) {
-        throw new Error('Nutzer konnte nicht aktualisiert werden.');
-      }
+      const sanitized = sanitizeAgentDraft(agent);
+      const timestamp = new Date().toISOString();
+      const agentId = createUuid();
 
-      const newAgent: StoredAgentProfile = sanitizeAgent({
-        id: generateId(),
-        ...agent
+      const { error } = await supabase.from('agent_conversations').insert({
+        id: createUuid(),
+        profile_id: currentUser.id,
+        agent_id: agentId,
+        agent_name: sanitized.name,
+        agent_description: sanitized.description,
+        agent_avatar_url: sanitized.avatarUrl,
+        agent_tools: sanitized.tools,
+        agent_webhook_url: sanitized.webhookUrl,
+        messages: [],
+        summary: null,
+        last_message_at: null,
+        title: sanitized.name,
+        created_at: timestamp,
+        updated_at: timestamp
       });
 
-      const updatedUser: StoredAuthUser = {
-        ...storedUsers[index],
-        agents: [...sanitizeAgents(storedUsers[index].agents), newAgent]
-      };
+      if (error) {
+        throw new Error(error.message ?? 'Agent konnte nicht erstellt werden.');
+      }
 
-      const nextUsers = [...storedUsers];
-      nextUsers[index] = updatedUser;
-      updateStateFromUsers(nextUsers, currentUser.id);
+      await fetchAndSetUsers(currentUser.id);
     },
-    [currentUser, updateStateFromUsers]
+    [currentUser, fetchAndSetUsers]
   );
 
   const updateAgent = useCallback(
@@ -391,35 +413,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error('Kein aktiver Nutzer gefunden.');
       }
 
-      const storedUsers = storedUsersRef.current;
-      const index = storedUsers.findIndex((user) => user.id === currentUser.id);
-      if (index === -1) {
-        throw new Error('Nutzer konnte nicht aktualisiert werden.');
-      }
-
-      const agents = sanitizeAgents(storedUsers[index].agents);
-      const agentIndex = agents.findIndex((agent) => agent.id === agentId);
-      if (agentIndex === -1) {
-        throw new Error('Agent wurde nicht gefunden.');
-      }
-
-      const updatedAgent: StoredAgentProfile = sanitizeAgent({
-        ...agents[agentIndex],
-        ...updates
+      const sanitized = sanitizeAgentDraft({
+        name: updates.name ?? '',
+        description: updates.description ?? '',
+        avatarUrl: updates.avatarUrl ?? null,
+        tools: updates.tools ?? [],
+        webhookUrl: updates.webhookUrl ?? ''
       });
 
-      const nextAgents = [...agents];
-      nextAgents[agentIndex] = updatedAgent;
+      const { error } = await supabase
+        .from('agent_conversations')
+        .update({
+          agent_name: sanitized.name,
+          agent_description: sanitized.description,
+          agent_avatar_url: sanitized.avatarUrl,
+          agent_tools: sanitized.tools,
+          agent_webhook_url: sanitized.webhookUrl,
+          title: sanitized.name,
+          updated_at: new Date().toISOString()
+        })
+        .eq('profile_id', currentUser.id)
+        .eq('agent_id', agentId);
 
-      const nextUsers = [...storedUsers];
-      nextUsers[index] = {
-        ...storedUsers[index],
-        agents: nextAgents
-      };
+      if (error) {
+        throw new Error(error.message ?? 'Agent konnte nicht aktualisiert werden.');
+      }
 
-      updateStateFromUsers(nextUsers, currentUser.id);
+      await fetchAndSetUsers(currentUser.id);
     },
-    [currentUser, updateStateFromUsers]
+    [currentUser, fetchAndSetUsers]
   );
 
   const removeAgent = useCallback(
@@ -428,24 +450,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error('Kein aktiver Nutzer gefunden.');
       }
 
-      const storedUsers = storedUsersRef.current;
-      const index = storedUsers.findIndex((user) => user.id === currentUser.id);
-      if (index === -1) {
-        throw new Error('Nutzer konnte nicht aktualisiert werden.');
+      const { error } = await supabase
+        .from('agent_conversations')
+        .delete()
+        .eq('profile_id', currentUser.id)
+        .eq('agent_id', agentId);
+
+      if (error) {
+        throw new Error(error.message ?? 'Agent konnte nicht entfernt werden.');
       }
 
-      const agents = sanitizeAgents(storedUsers[index].agents);
-      const nextAgents = agents.filter((agent) => agent.id !== agentId);
-
-      const nextUsers = [...storedUsers];
-      nextUsers[index] = {
-        ...storedUsers[index],
-        agents: nextAgents
-      };
-
-      updateStateFromUsers(nextUsers, currentUser.id);
+      await fetchAndSetUsers(currentUser.id);
     },
-    [currentUser, updateStateFromUsers]
+    [currentUser, fetchAndSetUsers]
   );
 
   const value = useMemo<AuthContextValue>(
