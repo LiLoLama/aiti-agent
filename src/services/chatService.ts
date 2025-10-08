@@ -1,17 +1,13 @@
-import type { PostgrestError } from '@supabase/supabase-js';
-import { supabase } from '../utils/supabase';
-import { Chat, ChatMessage, ChatAttachment } from '../data/sampleChats';
+import { Chat, ChatAttachment, ChatMessage } from '../data/sampleChats';
 import type { AgentProfile } from '../types/auth';
 import { sanitizeAgentProfile } from '../utils/agents';
-
-const TABLE_NAME = 'agent_conversations';
 
 export interface AgentConversationRow {
   id: string;
   profile_id: string;
   agent_id: string | null;
   title?: string | null;
-  messages?: unknown;
+  messages?: ChatMessage[];
   summary?: string | null;
   last_message_at?: string | null;
   created_at?: string | null;
@@ -19,7 +15,7 @@ export interface AgentConversationRow {
   agent_name?: string | null;
   agent_description?: string | null;
   agent_avatar_url?: string | null;
-  agent_tools?: unknown;
+  agent_tools?: string[] | null;
   agent_webhook_url?: string | null;
 }
 
@@ -30,43 +26,40 @@ export interface AgentConversationUpdatePayload {
   lastMessageAt?: string | null;
 }
 
-const parseMessages = (value: unknown): ChatMessage[] => {
-  if (!Array.isArray(value)) {
+const STORAGE_KEY = 'aiti-agent-conversations-v1';
+
+const readStore = (): AgentConversationRow[] => {
+  if (typeof window === 'undefined') {
     return [];
   }
 
-  const messages: ChatMessage[] = [];
-
-  for (const entry of value) {
-    if (!entry || typeof entry !== 'object') {
-      continue;
-    }
-
-    const candidate = entry as Partial<ChatMessage> & { attachments?: unknown };
-    if (
-      typeof candidate.id === 'string' &&
-      (candidate.author === 'agent' || candidate.author === 'user') &&
-      typeof candidate.content === 'string' &&
-      typeof candidate.timestamp === 'string'
-    ) {
-      const attachments = Array.isArray(candidate.attachments)
-        ? candidate.attachments.filter(
-            (attachment): attachment is ChatAttachment =>
-              Boolean(attachment) && typeof attachment === 'object' && typeof (attachment as any).id === 'string'
-          )
-        : undefined;
-
-      messages.push({
-        id: candidate.id,
-        author: candidate.author,
-        content: candidate.content,
-        timestamp: candidate.timestamp,
-        ...(attachments && attachments.length > 0 ? { attachments } : {})
-      });
-    }
+  const raw = window.localStorage.getItem(STORAGE_KEY);
+  if (!raw) {
+    return [];
   }
 
-  return messages;
+  try {
+    const parsed = JSON.parse(raw) as AgentConversationRow[];
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed;
+  } catch (error) {
+    console.warn('Konversationen konnten nicht geladen werden.', error);
+    return [];
+  }
+};
+
+const writeStore = (rows: AgentConversationRow[]) => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(rows));
+  } catch (error) {
+    console.warn('Konversationen konnten nicht gespeichert werden.', error);
+  }
 };
 
 const toPreview = (value: string) => (value.length > 140 ? `${value.slice(0, 137)}…` : value);
@@ -93,87 +86,46 @@ const formatDisplayTime = (value: string | null | undefined) => {
   });
 };
 
-const parseAgentTools = (value: unknown): string[] => {
+const parseMessages = (value: unknown): ChatMessage[] => {
   if (!Array.isArray(value)) {
     return [];
   }
 
   return value
-    .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
-    .filter((entry) => entry.length > 0);
-};
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') {
+        return null;
+      }
 
-export const mapRowToAgentProfile = (row: AgentConversationRow): AgentProfile | null => {
-  const agentId = typeof row.agent_id === 'string' ? row.agent_id : null;
+      const candidate = entry as Partial<ChatMessage> & { attachments?: unknown };
+      if (
+        typeof candidate.id === 'string' &&
+        (candidate.author === 'agent' || candidate.author === 'user') &&
+        typeof candidate.content === 'string' &&
+        typeof candidate.timestamp === 'string'
+      ) {
+        let attachments: ChatAttachment[] | undefined;
+        if (Array.isArray(candidate.attachments)) {
+          attachments = candidate.attachments.filter(
+            (attachment): attachment is ChatAttachment =>
+              Boolean(attachment) &&
+              typeof attachment === 'object' &&
+              typeof (attachment as ChatAttachment).id === 'string'
+          );
+        }
 
-  if (!agentId) {
-    return null;
-  }
+        return {
+          id: candidate.id,
+          author: candidate.author,
+          content: candidate.content,
+          timestamp: candidate.timestamp,
+          ...(attachments && attachments.length > 0 ? { attachments } : {})
+        } satisfies ChatMessage;
+      }
 
-  const sanitized = sanitizeAgentProfile({
-    id: agentId,
-    name: (row.agent_name ?? row.title ?? 'AITI Agent').trim(),
-    description: row.agent_description ?? '',
-    avatarUrl: row.agent_avatar_url ?? null,
-    tools: parseAgentTools(row.agent_tools),
-    webhookUrl: row.agent_webhook_url ?? ''
-  });
-
-  return sanitized;
-};
-
-export const fetchChatsForProfile = async (profileId: string): Promise<AgentConversationRow[]> => {
-  const { data, error } = await supabase.from(TABLE_NAME).select('*').eq('profile_id', profileId);
-
-  if (error) {
-    throw error;
-  }
-
-  const rows = (data ?? []) as Array<AgentConversationRow & Record<string, unknown>>;
-
-  const normalizeTimestamp = (value: unknown): string | null => {
-    if (!value) {
       return null;
-    }
-
-    if (typeof value === 'string') {
-      return value;
-    }
-
-    if (value instanceof Date) {
-      return value.toISOString();
-    }
-
-    const coerced = new Date(value as any);
-    const time = coerced.getTime();
-    return Number.isNaN(time) ? null : coerced.toISOString();
-  };
-
-  return rows
-    .map((row) => ({
-      ...row,
-      last_message_at: normalizeTimestamp(row.last_message_at),
-      updated_at: normalizeTimestamp(row.updated_at),
-      created_at: normalizeTimestamp(row.created_at)
-    }))
-    .sort((a, b) => {
-      const aTime = a.last_message_at ?? a.updated_at ?? a.created_at;
-      const bTime = b.last_message_at ?? b.updated_at ?? b.created_at;
-
-      if (!aTime && !bTime) {
-        return 0;
-      }
-
-      if (!aTime) {
-        return 1;
-      }
-
-      if (!bTime) {
-        return -1;
-      }
-
-      return new Date(bTime).getTime() - new Date(aTime).getTime();
-    });
+    })
+    .filter((message): message is ChatMessage => Boolean(message));
 };
 
 export const mapChatRowToChat = (row: AgentConversationRow): Chat => {
@@ -194,36 +146,32 @@ export const mapChatRowToChat = (row: AgentConversationRow): Chat => {
   };
 };
 
-const buildChatInsertPayload = (profileId: string, chat: Chat) => {
-  const nowIso = new Date().toISOString();
-  return {
-    id: chat.id,
-    profile_id: profileId,
-    title: chat.name,
-    messages: chat.messages,
-    summary: chat.preview,
-    last_message_at: nowIso,
-    agent_id: chat.agentId
-  };
+const storeRows = (updater: (rows: AgentConversationRow[]) => AgentConversationRow[]) => {
+  const nextRows = updater(readStore());
+  writeStore(nextRows);
 };
 
-const isMissingColumnError = (error: PostgrestError, column: string) =>
-  error.message.toLowerCase().includes(`column "${column.toLowerCase()}`);
+export const fetchChatsForProfile = async (profileId: string): Promise<AgentConversationRow[]> => {
+  const rows = readStore().filter((row) => row.profile_id === profileId);
 
-const buildAgentMetadataPayload = (agent?: AgentProfile) => {
-  if (!agent) {
-    return {} as Record<string, unknown>;
-  }
+  return rows.sort((a, b) => {
+    const aTime = a.last_message_at ?? a.updated_at ?? a.created_at ?? '';
+    const bTime = b.last_message_at ?? b.updated_at ?? b.created_at ?? '';
 
-  const sanitized = sanitizeAgentProfile(agent);
+    if (!aTime && !bTime) {
+      return 0;
+    }
 
-  return {
-    agent_name: sanitized.name,
-    agent_description: sanitized.description,
-    agent_avatar_url: sanitized.avatarUrl,
-    agent_tools: sanitized.tools,
-    agent_webhook_url: sanitized.webhookUrl
-  } as Record<string, unknown>;
+    if (!aTime) {
+      return 1;
+    }
+
+    if (!bTime) {
+      return -1;
+    }
+
+    return new Date(bTime).getTime() - new Date(aTime).getTime();
+  });
 };
 
 export const createChatForProfile = async (
@@ -231,159 +179,84 @@ export const createChatForProfile = async (
   chat: Chat,
   agent?: AgentProfile
 ) => {
-  const payload = {
-    ...buildChatInsertPayload(profileId, chat),
-    ...buildAgentMetadataPayload(agent)
-  };
-  const attemptInsert = async (data: Record<string, unknown>) => {
-    const { error } = await supabase.from(TABLE_NAME).insert(data);
-    return error;
-  };
+  const sanitizedAgent = agent ? sanitizeAgentProfile(agent) : undefined;
+  const now = new Date().toISOString();
 
-  let currentPayload: Record<string, unknown> = { ...payload };
-  let error = await attemptInsert(currentPayload);
-  const handled = new Set<string>();
+  storeRows((rows) => {
+    const existingIndex = rows.findIndex(
+      (row) => row.profile_id === profileId && row.agent_id === chat.agentId
+    );
 
-  while (error) {
-    if (error.code === '23505') {
-      const { id: _unusedId, profile_id: _unusedProfile, ...rest } = currentPayload;
-      const { error: updateError } = await supabase
-        .from(TABLE_NAME)
-        .update(rest)
-        .eq('profile_id', profileId)
-        .eq('agent_id', chat.agentId);
+    const baseRow: AgentConversationRow = {
+      id: chat.id,
+      profile_id: profileId,
+      agent_id: chat.agentId,
+      title: chat.name,
+      messages: chat.messages,
+      summary: chat.preview,
+      last_message_at: now,
+      created_at: existingIndex >= 0 ? rows[existingIndex].created_at ?? now : now,
+      updated_at: now,
+      agent_name: sanitizedAgent?.name ?? chat.name,
+      agent_description: sanitizedAgent?.description ?? null,
+      agent_avatar_url: sanitizedAgent?.avatarUrl ?? null,
+      agent_tools: sanitizedAgent?.tools ?? [],
+      agent_webhook_url: sanitizedAgent?.webhookUrl ?? null
+    };
 
-      if (updateError) {
-        throw updateError;
-      }
-
-      return;
-    }
-
-    if (!handled.has('title') && 'title' in currentPayload && isMissingColumnError(error, 'title')) {
-      handled.add('title');
-      const { title: _unusedTitle, ...rest } = currentPayload;
-      currentPayload = {
-        ...rest,
-        name: chat.name
+    if (existingIndex >= 0) {
+      const nextRows = [...rows];
+      nextRows[existingIndex] = {
+        ...rows[existingIndex],
+        ...baseRow
       };
-    } else if (!handled.has('summary') && 'summary' in currentPayload && isMissingColumnError(error, 'summary')) {
-      handled.add('summary');
-      const { summary: _unusedSummary, ...rest } = currentPayload;
-      currentPayload = rest;
-    } else if (
-      !handled.has('last_message_at') &&
-      'last_message_at' in currentPayload &&
-      isMissingColumnError(error, 'last_message_at')
-    ) {
-      handled.add('last_message_at');
-      const { last_message_at: _unusedTimestamp, ...rest } = currentPayload;
-      currentPayload = rest;
-    } else if (!handled.has('agent_id') && 'agent_id' in currentPayload && isMissingColumnError(error, 'agent_id')) {
-      handled.add('agent_id');
-      const { agent_id: _unusedAgent, ...rest } = currentPayload;
-      currentPayload = rest;
-    } else {
-      throw error;
+      return nextRows;
     }
 
-    if (Object.keys(currentPayload).length === 0) {
-      return;
-    }
-
-    error = await attemptInsert(currentPayload);
-  }
+    return [...rows, baseRow];
+  });
 };
 
 export const updateChatRow = async (chatId: string, updates: AgentConversationUpdatePayload) => {
-  const payload: Record<string, unknown> = {};
+  const now = new Date().toISOString();
 
-  if (typeof updates.title === 'string') {
-    payload.title = updates.title;
-  }
+  storeRows((rows) =>
+    rows.map((row) => {
+      if (row.id !== chatId) {
+        return row;
+      }
 
-  if (updates.messages) {
-    payload.messages = updates.messages;
-  }
-
-  if (typeof updates.summary === 'string') {
-    payload.summary = updates.summary;
-  }
-
-  if (typeof updates.lastMessageAt === 'string') {
-    payload.last_message_at = updates.lastMessageAt;
-  }
-
-  if (Object.keys(payload).length === 0) {
-    return;
-  }
-
-  const attemptUpdate = async (data: Record<string, unknown>) => {
-    const { error } = await supabase.from(TABLE_NAME).update(data).eq('id', chatId);
-    return error;
-  };
-
-  let currentPayload: Record<string, unknown> = { ...payload };
-  let error = await attemptUpdate(currentPayload);
-  const handled = new Set<string>();
-
-  while (error) {
-    if (!handled.has('title') && 'title' in currentPayload && isMissingColumnError(error, 'title')) {
-      handled.add('title');
-      const { title: _unusedTitle, ...rest } = currentPayload;
-      currentPayload = {
-        ...rest,
-        name: updates.title
+      return {
+        ...row,
+        ...(typeof updates.title === 'string' ? { title: updates.title } : {}),
+        ...(updates.messages ? { messages: updates.messages } : {}),
+        ...(typeof updates.summary === 'string' ? { summary: updates.summary } : {}),
+        ...(typeof updates.lastMessageAt === 'string'
+          ? { last_message_at: updates.lastMessageAt, updated_at: updates.lastMessageAt }
+          : { updated_at: now })
       };
-    } else if (!handled.has('summary') && 'summary' in currentPayload && isMissingColumnError(error, 'summary')) {
-      handled.add('summary');
-      const { summary: _unusedSummary, ...rest } = currentPayload;
-      currentPayload = rest;
-    } else if (
-      !handled.has('last_message_at') &&
-      'last_message_at' in currentPayload &&
-      isMissingColumnError(error, 'last_message_at')
-    ) {
-      handled.add('last_message_at');
-      const { last_message_at: _unusedTimestamp, ...rest } = currentPayload;
-      currentPayload = rest;
-    } else if (
-      !handled.has('agent_id') &&
-      'agent_id' in currentPayload &&
-      isMissingColumnError(error, 'agent_id')
-    ) {
-      handled.add('agent_id');
-      const { agent_id: _unusedAgent, ...rest } = currentPayload;
-      currentPayload = rest;
-    } else if (!handled.has('messages') && 'messages' in currentPayload && isMissingColumnError(error, 'messages')) {
-      handled.add('messages');
-      const { messages: _unusedMessages, ...rest } = currentPayload;
-      currentPayload = rest;
-    } else {
-      throw error;
-    }
+    })
+  );
+};
 
-    if (Object.keys(currentPayload).length === 0) {
-      return;
-    }
-
-    error = await attemptUpdate(currentPayload);
+export const mapRowToAgentProfile = (row: AgentConversationRow): AgentProfile | null => {
+  const agentId = typeof row.agent_id === 'string' ? row.agent_id : null;
+  if (!agentId) {
+    return null;
   }
+
+  return sanitizeAgentProfile({
+    id: agentId,
+    name: (row.agent_name ?? row.title ?? 'AITI Agent').trim(),
+    description: row.agent_description ?? '',
+    avatarUrl: row.agent_avatar_url ?? null,
+    tools: Array.isArray(row.agent_tools) ? row.agent_tools : [],
+    webhookUrl: row.agent_webhook_url ?? ''
+  });
 };
 
 export const fetchAgentProfilesForProfile = async (profileId: string): Promise<AgentProfile[]> => {
-  const { data, error } = await supabase
-    .from(TABLE_NAME)
-    .select(
-      'profile_id, agent_id, agent_name, agent_description, agent_avatar_url, agent_tools, agent_webhook_url, title'
-    )
-    .eq('profile_id', profileId);
-
-  if (error) {
-    throw error;
-  }
-
-  const rows = (data ?? []) as AgentConversationRow[];
+  const rows = readStore().filter((row) => row.profile_id === profileId);
   const seen = new Set<string>();
   const agents: AgentProfile[] = [];
 
@@ -405,18 +278,7 @@ export const fetchAgentProfilesForProfiles = async (
     return {};
   }
 
-  const { data, error } = await supabase
-    .from(TABLE_NAME)
-    .select(
-      'profile_id, agent_id, agent_name, agent_description, agent_avatar_url, agent_tools, agent_webhook_url, title'
-    )
-    .in('profile_id', profileIds);
-
-  if (error) {
-    throw error;
-  }
-
-  const rows = (data ?? []) as AgentConversationRow[];
+  const rows = readStore().filter((row) => profileIds.includes(row.profile_id));
   const result: Record<string, AgentProfile[]> = {};
 
   for (const row of rows) {
@@ -439,65 +301,54 @@ export const fetchAgentProfilesForProfiles = async (
 
 export const saveAgentMetadataForProfile = async (profileId: string, agent: AgentProfile) => {
   const sanitized = sanitizeAgentProfile(agent);
+  const now = new Date().toISOString();
+  let createdId = sanitized.id;
 
-  const basePayload = {
-    agent_name: sanitized.name,
-    agent_description: sanitized.description,
-    agent_avatar_url: sanitized.avatarUrl,
-    agent_tools: sanitized.tools,
-    agent_webhook_url: sanitized.webhookUrl,
-    title: sanitized.name,
-    updated_at: new Date().toISOString()
-  };
+  storeRows((rows) => {
+    const nextRows = [...rows];
+    const existingIndex = nextRows.findIndex(
+      (row) => row.profile_id === profileId && row.agent_id === sanitized.id
+    );
 
-  const { data: existing, error: existingError } = await supabase
-    .from(TABLE_NAME)
-    .select('id')
-    .eq('profile_id', profileId)
-    .eq('agent_id', sanitized.id)
-    .maybeSingle<{ id: string }>();
-
-  if (existingError && existingError.code !== 'PGRST116') {
-    throw existingError;
-  }
-
-  if (existing) {
-    const { error } = await supabase.from(TABLE_NAME).update(basePayload).eq('id', existing.id);
-    if (error) {
-      throw error;
+    if (existingIndex >= 0) {
+      nextRows[existingIndex] = {
+        ...nextRows[existingIndex],
+        agent_name: sanitized.name,
+        agent_description: sanitized.description,
+        agent_avatar_url: sanitized.avatarUrl ?? null,
+        agent_tools: sanitized.tools,
+        agent_webhook_url: sanitized.webhookUrl,
+        title: sanitized.name,
+        updated_at: now
+      };
+      createdId = nextRows[existingIndex].id;
+      return nextRows;
     }
-    return existing.id;
-  }
 
-  const nowIso = new Date().toISOString();
-  const insertPayload = {
-    id: sanitized.id,
-    profile_id: profileId,
-    agent_id: sanitized.id,
-    ...basePayload,
-    created_at: nowIso,
-    last_message_at: null,
-    summary: null,
-    messages: [] as ChatMessage[]
-  };
+    const newRow: AgentConversationRow = {
+      id: sanitized.id,
+      profile_id: profileId,
+      agent_id: sanitized.id,
+      agent_name: sanitized.name,
+      agent_description: sanitized.description,
+      agent_avatar_url: sanitized.avatarUrl ?? null,
+      agent_tools: sanitized.tools,
+      agent_webhook_url: sanitized.webhookUrl,
+      title: sanitized.name,
+      summary: null,
+      messages: [],
+      created_at: now,
+      updated_at: now,
+      last_message_at: null
+    };
 
-  const { error } = await supabase.from(TABLE_NAME).insert(insertPayload);
+    nextRows.push(newRow);
+    return nextRows;
+  });
 
-  if (error) {
-    throw error;
-  }
-
-  return insertPayload.id;
+  return createdId;
 };
 
 export const deleteAgentForProfile = async (profileId: string, agentId: string) => {
-  const { error } = await supabase
-    .from(TABLE_NAME)
-    .delete()
-    .eq('profile_id', profileId)
-    .eq('agent_id', agentId);
-
-  if (error) {
-    throw error;
-  }
+  storeRows((rows) => rows.filter((row) => !(row.profile_id === profileId && row.agent_id === agentId)));
 };
