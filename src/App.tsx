@@ -7,30 +7,39 @@ import { LoginPage } from './pages/LoginPage';
 import { RequireAuth } from './components/RequireAuth';
 import { ProfilePage } from './pages/ProfilePage';
 
-interface TodoRecord {
-  id?: string | number;
-  title?: string;
-  [key: string]: unknown;
-}
-
 function App() {
-  const [todos, setTodos] = useState<TodoRecord[]>([]);
+  const [profiles, setProfiles] = useState<{ id: string; display_name: string | null }[]>([]);
 
   useEffect(() => {
-    const getTodos = async () => {
-      const { data, error } = await supabase.from('todos').select('*');
+    const loadProfiles = async () => {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, display_name')
+        .order('created_at', { ascending: true })
+        .limit(5);
 
       if (error) {
-        console.error('Fehler beim Laden der Todos aus Supabase', error);
+        if (error.code === 'PGRST205') {
+          console.info(
+            "Supabase-Demoabfrage übersprungen, da die Tabelle 'profiles' nicht vorhanden ist."
+          );
+        } else {
+          console.error('Fehler beim Laden der Profile aus Supabase', error);
+        }
         return;
       }
 
       if (data && data.length > 0) {
-        setTodos(data as TodoRecord[]);
+        setProfiles(
+          data.map((record) => ({
+            id: record.id as string,
+            display_name: (record.display_name as string | null) ?? null
+          }))
+        );
       }
     };
 
-    void getTodos();
+    void loadProfiles();
   }, []);
 
   return (
@@ -44,20 +53,14 @@ function App() {
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-      {todos.length > 0 && (
+      {profiles.length > 0 && (
         <div style={{ display: 'none' }} aria-hidden="true">
           <ul>
-            {todos.map((todo, index) => (
+            {profiles.map((profile) => (
               <li
-                key={
-                  typeof todo.id !== 'undefined' && todo.id !== null
-                    ? String(todo.id)
-                    : `todo-${index}`
-                }
+                key={profile.id}
               >
-                {typeof todo.title === 'string' && todo.title.length > 0
-                  ? todo.title
-                  : JSON.stringify(todo)}
+                {profile.display_name ?? profile.id}
               </li>
             ))}
           </ul>
