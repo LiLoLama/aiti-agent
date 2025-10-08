@@ -1,6 +1,6 @@
 # Supabase Setup für den Agenten-Chat
 
-Diese Anwendung erwartet eine Supabase-Instanz mit einer `profiles`-Tabelle, in der die Nutzerkonten verwaltet werden, und einer `chats`-Tabelle, die genau einen Chat pro Agent speichert. Die folgende Anleitung beschreibt die notwendigen Tabellen, Spalten und Row-Level-Security-Policies.
+Diese Anwendung erwartet eine Supabase-Instanz mit einer `profiles`-Tabelle, in der die Nutzerkonten verwaltet werden, und einer neuen Tabelle `agent_conversations`, die genau einen Chat pro Agent speichert. Die folgende Anleitung beschreibt die notwendigen Tabellen, Spalten und Row-Level-Security-Policies.
 
 ## 1. Tabelle `profiles`
 
@@ -23,9 +23,9 @@ Falls noch nicht vorhanden, lege eine Tabelle `profiles` mit folgenden Spalten a
 
 > Wichtig: Aktiviere RLS (Row Level Security) auf der Tabelle. Erstelle Policies, damit angemeldete Nutzer nur auf ihre eigene Zeile zugreifen dürfen (`id = auth.uid()`). Mindestens SELECT, INSERT und UPDATE werden benötigt.
 
-## 2. Tabelle `chats`
+## 2. Tabelle `agent_conversations`
 
-Die Chat-Daten werden in einer Tabelle `chats` gespeichert. Lege sie mit folgenden Spalten an:
+Die Chat-Daten werden in einer separaten Tabelle `agent_conversations` gespeichert. Frühere Tabellen wie `chats` oder `chat_folders` werden von der Anwendung nicht mehr angesprochen. Lege die neue Tabelle mit folgenden Spalten an:
 
 | Spalte            | Typ          | Hinweise                                                         |
 |-------------------|--------------|------------------------------------------------------------------|
@@ -45,43 +45,39 @@ Die Chat-Daten werden in einer Tabelle `chats` gespeichert. Lege sie mit folgend
 2. Fremdschlüssel `profile_id` → `profiles.id` (ON DELETE CASCADE empfohlen).
 3. Einzigartiger Index auf (`profile_id`, `agent_id`), damit pro Agent nur ein Chat existiert:
    ```sql
-   create unique index chats_profile_agent_unique on public.chats (profile_id, agent_id);
+   create unique index agent_conversations_profile_agent_unique on public.agent_conversations (profile_id, agent_id);
    ```
 
 ### Row-Level-Security
 
-Aktiviere RLS auf `chats` und erstelle folgende Policies:
+Aktiviere RLS auf `agent_conversations` und erstelle folgende Policies:
 
 ```sql
-create policy "Users can view own chats"
-  on public.chats
+create policy "Users can view own agent chats"
+  on public.agent_conversations
   for select
   using (profile_id = auth.uid());
 
-create policy "Users can insert own chats"
-  on public.chats
+create policy "Users can insert own agent chats"
+  on public.agent_conversations
   for insert
   with check (profile_id = auth.uid());
 
-create policy "Users can update own chats"
-  on public.chats
+create policy "Users can update own agent chats"
+  on public.agent_conversations
   for update
   using (profile_id = auth.uid())
   with check (profile_id = auth.uid());
 
-create policy "Users can delete own chats"
-  on public.chats
+create policy "Users can delete own agent chats"
+  on public.agent_conversations
   for delete
   using (profile_id = auth.uid());
 ```
 
 > Die Anwendung erstellt fehlende Chats automatisch. Der eindeutige Index stellt sicher, dass pro Agent nur ein Chat erzeugt werden kann.
 
-## 3. Nicht mehr benötigte Tabellen
-
-Frühere Versionen nutzten eine Tabelle `chat_folders`. Diese wird von der aktuellen Oberfläche nicht mehr verwendet und kann optional entfernt oder ignoriert werden.
-
-## 4. Erwartete Umgebungsvariablen
+## 3. Erwartete Umgebungsvariablen
 
 Stelle sicher, dass dein Frontend Zugriff auf die folgenden Variablen hat:
 
@@ -90,8 +86,8 @@ Stelle sicher, dass dein Frontend Zugriff auf die folgenden Variablen hat:
 
 Beide Werte kannst du im Supabase-Dashboard unter **Project Settings → API** abrufen.
 
-## 5. Zusammenfassung
+## 4. Zusammenfassung
 
-- Jeder Agent besitzt genau einen Chat in der Tabelle `chats` (Identifikation über `agent_id`).
+- Jeder Agent besitzt genau einen Chat in der Tabelle `agent_conversations` (Identifikation über `agent_id`).
 - Die Anwendung liest und schreibt ausschließlich Zeilen, deren `profile_id` der angemeldeten Nutzer-ID entspricht.
-- Policies auf `profiles` und `chats` müssen INSERT, SELECT, UPDATE (und optional DELETE) für die jeweilige Nutzer-ID erlauben.
+- Policies auf `profiles` und `agent_conversations` müssen INSERT, SELECT, UPDATE (und optional DELETE) für die jeweilige Nutzer-ID erlauben.

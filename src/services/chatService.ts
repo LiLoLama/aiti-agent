@@ -2,31 +2,22 @@ import type { PostgrestError } from '@supabase/supabase-js';
 import { supabase } from '../utils/supabase';
 import { Chat, ChatMessage, ChatAttachment } from '../data/sampleChats';
 
-export interface FolderRecord {
-  id: string;
-  profile_id: string;
-  name: string;
-  created_at: string | null;
-  updated_at?: string | null;
-}
+const TABLE_NAME = 'agent_conversations';
 
-export interface ChatRow {
+export interface AgentConversationRow {
   id: string;
   profile_id: string;
+  agent_id: string | null;
   title?: string | null;
-  name?: string | null;
-  folder_id?: string | null;
   messages?: unknown;
   summary?: string | null;
   last_message_at?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
-  agent_id?: string | null;
 }
 
-export interface ChatUpdatePayload {
+export interface AgentConversationUpdatePayload {
   title?: string;
-  folderId?: string | null;
   messages?: ChatMessage[];
   summary?: string | null;
   lastMessageAt?: string | null;
@@ -95,86 +86,14 @@ const formatDisplayTime = (value: string | null | undefined) => {
   });
 };
 
-export const fetchFoldersForProfile = async (profileId: string): Promise<FolderRecord[]> => {
-  const { data, error } = await supabase.from('chat_folders').select('*').eq('profile_id', profileId);
+export const fetchChatsForProfile = async (profileId: string): Promise<AgentConversationRow[]> => {
+  const { data, error } = await supabase.from(TABLE_NAME).select('*').eq('profile_id', profileId);
 
   if (error) {
     throw error;
   }
 
-  const rows = (data ?? []) as Array<Partial<FolderRecord> & Record<string, unknown>>;
-
-  return rows
-    .map((row) => {
-      const id = typeof row.id === 'string' ? row.id : row.id ? String(row.id) : '';
-      const profileId =
-        typeof row.profile_id === 'string'
-          ? row.profile_id
-          : row.profile_id
-          ? String(row.profile_id)
-          : '';
-      const name = typeof row.name === 'string' && row.name.trim().length > 0 ? row.name : 'Unbenannter Ordner';
-
-      return {
-        id,
-        profile_id: profileId,
-        name,
-        created_at: typeof row.created_at === 'string' ? row.created_at : null,
-        updated_at: typeof row.updated_at === 'string' ? row.updated_at : null
-      };
-    })
-    .filter((row) => row.id && row.profile_id)
-    .sort((a, b) => a.name.localeCompare(b.name));
-};
-
-export const createFolderForProfile = async (
-  profileId: string,
-  name: string
-): Promise<FolderRecord> => {
-  const trimmedName = name.trim();
-  const { data, error } = await supabase
-    .from('chat_folders')
-    .insert({
-      profile_id: profileId,
-      name: trimmedName
-    })
-    .select('id, profile_id, name, created_at, updated_at')
-    .single();
-
-  if (error) {
-    throw error;
-  }
-
-  return data;
-};
-
-export const deleteFolderById = async (folderId: string) => {
-  const { error } = await supabase.from('chat_folders').delete().eq('id', folderId);
-  if (error) {
-    throw error;
-  }
-};
-
-export const detachFolderFromChats = async (profileId: string, folderId: string) => {
-  const { error } = await supabase
-    .from('chats')
-    .update({ folder_id: null })
-    .eq('profile_id', profileId)
-    .eq('folder_id', folderId);
-
-  if (error) {
-    throw error;
-  }
-};
-
-export const fetchChatsForProfile = async (profileId: string): Promise<ChatRow[]> => {
-  const { data, error } = await supabase.from('chats').select('*').eq('profile_id', profileId);
-
-  if (error) {
-    throw error;
-  }
-
-  const rows = (data ?? []) as Array<ChatRow & Record<string, unknown>>;
+  const rows = (data ?? []) as Array<AgentConversationRow & Record<string, unknown>>;
 
   const normalizeTimestamp = (value: unknown): string | null => {
     if (!value) {
@@ -221,16 +140,11 @@ export const fetchChatsForProfile = async (profileId: string): Promise<ChatRow[]
     });
 };
 
-export const mapChatRowToChat = (
-  row: ChatRow,
-  foldersById?: Map<string, FolderRecord>
-): Chat => {
-  const title = (row.title ?? row.name ?? 'Neuer Chat').trim();
+export const mapChatRowToChat = (row: AgentConversationRow): Chat => {
+  const title = (row.title ?? 'Neuer Chat').trim();
   const messages = parseMessages(row.messages);
   const lastMessage = messages.length > 0 ? messages[messages.length - 1] : undefined;
   const previewSource = row.summary ?? lastMessage?.content ?? '';
-  const folderId = row.folder_id ?? undefined;
-  const folderName = folderId && foldersById ? foldersById.get(folderId)?.name : undefined;
   const lastTimestamp = row.last_message_at ?? row.updated_at ?? row.created_at ?? new Date().toISOString();
   const agentId = typeof row.agent_id === 'string' ? row.agent_id : '';
 
@@ -238,8 +152,6 @@ export const mapChatRowToChat = (
     id: row.id,
     agentId,
     name: title.length > 0 ? title : 'Neuer Chat',
-    folder: folderName,
-    folderId,
     messages,
     preview: toPreview(previewSource),
     lastUpdated: formatDisplayTime(lastTimestamp)
@@ -253,7 +165,6 @@ const buildChatInsertPayload = (profileId: string, chat: Chat) => {
     profile_id: profileId,
     title: chat.name,
     messages: chat.messages,
-    folder_id: chat.folderId ?? null,
     summary: chat.preview,
     last_message_at: nowIso,
     agent_id: chat.agentId
@@ -269,7 +180,7 @@ export const createChatForProfile = async (
 ) => {
   const payload = buildChatInsertPayload(profileId, chat);
   const attemptInsert = async (data: Record<string, unknown>) => {
-    const { error } = await supabase.from('chats').insert(data);
+    const { error } = await supabase.from(TABLE_NAME).insert(data);
     return error;
   };
 
@@ -297,10 +208,6 @@ export const createChatForProfile = async (
       handled.add('last_message_at');
       const { last_message_at: _unusedTimestamp, ...rest } = currentPayload;
       currentPayload = rest;
-    } else if (!handled.has('folder_id') && 'folder_id' in currentPayload && isMissingColumnError(error, 'folder_id')) {
-      handled.add('folder_id');
-      const { folder_id: _unusedFolder, ...rest } = currentPayload;
-      currentPayload = rest;
     } else if (!handled.has('agent_id') && 'agent_id' in currentPayload && isMissingColumnError(error, 'agent_id')) {
       handled.add('agent_id');
       const { agent_id: _unusedAgent, ...rest } = currentPayload;
@@ -317,15 +224,11 @@ export const createChatForProfile = async (
   }
 };
 
-export const updateChatRow = async (chatId: string, updates: ChatUpdatePayload) => {
+export const updateChatRow = async (chatId: string, updates: AgentConversationUpdatePayload) => {
   const payload: Record<string, unknown> = {};
 
   if (typeof updates.title === 'string') {
     payload.title = updates.title;
-  }
-
-  if ('folderId' in updates) {
-    payload.folder_id = updates.folderId ?? null;
   }
 
   if (updates.messages) {
@@ -345,7 +248,7 @@ export const updateChatRow = async (chatId: string, updates: ChatUpdatePayload) 
   }
 
   const attemptUpdate = async (data: Record<string, unknown>) => {
-    const { error } = await supabase.from('chats').update(data).eq('id', chatId);
+    const { error } = await supabase.from(TABLE_NAME).update(data).eq('id', chatId);
     return error;
   };
 
@@ -374,14 +277,6 @@ export const updateChatRow = async (chatId: string, updates: ChatUpdatePayload) 
       const { last_message_at: _unusedTimestamp, ...rest } = currentPayload;
       currentPayload = rest;
     } else if (
-      !handled.has('folder_id') &&
-      'folder_id' in currentPayload &&
-      isMissingColumnError(error, 'folder_id')
-    ) {
-      handled.add('folder_id');
-      const { folder_id: _unusedFolder, ...rest } = currentPayload;
-      currentPayload = rest;
-    } else if (
       !handled.has('agent_id') &&
       'agent_id' in currentPayload &&
       isMissingColumnError(error, 'agent_id')
@@ -402,12 +297,5 @@ export const updateChatRow = async (chatId: string, updates: ChatUpdatePayload) 
     }
 
     error = await attemptUpdate(currentPayload);
-  }
-};
-
-export const deleteChatById = async (chatId: string) => {
-  const { error } = await supabase.from('chats').delete().eq('id', chatId);
-  if (error) {
-    throw error;
   }
 };

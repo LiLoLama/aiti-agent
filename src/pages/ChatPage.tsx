@@ -5,7 +5,7 @@ import { ChatTimeline } from '../components/ChatTimeline';
 import { ChatInput, ChatInputSubmission } from '../components/ChatInput';
 import { ChatOverviewPanel } from '../components/ChatOverviewPanel';
 import { Chat, ChatAttachment, ChatMessage } from '../data/sampleChats';
-import { ChevronDoubleLeftIcon, ChevronDoubleRightIcon } from '@heroicons/react/24/outline';
+import { ChevronDoubleLeftIcon, ChevronDoubleRightIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline';
 
 import agentAvatar from '../assets/agent-avatar.png';
 import userAvatar from '../assets/default-user.svg';
@@ -61,6 +61,7 @@ export function ChatPage() {
   const [remoteSyncError, setRemoteSyncError] = useState<string | null>(null);
   const [pendingResponseAgentId, setPendingResponseAgentId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [isSearchOpen, setSearchOpen] = useState(false);
   const hasRemoteProfile = currentUser?.hasRemoteProfile ?? false;
   const requiresRemoteProfileSetup = Boolean(currentUser) && !hasRemoteProfile;
   const remoteProfileSetupMessage =
@@ -127,17 +128,6 @@ export function ChatPage() {
     return currentUser.agents[0];
   }, [currentUser, activeAgentId]);
 
-  const agentSwitcherOptions = useMemo(
-    () =>
-      currentUser
-        ? currentUser.agents.map((agent) => ({
-            id: agent.id,
-            name: agent.name,
-            description: agent.description
-          }))
-        : [],
-    [currentUser]
-  );
   const defaultAgentAvatar = useMemo(
     () => settings.agentAvatarImage ?? agentAvatar,
     [settings.agentAvatarImage]
@@ -315,6 +305,12 @@ export function ChatPage() {
   useEffect(() => {
     setSearchTerm('');
   }, [selectedAgent?.id]);
+
+  useEffect(() => {
+    if (!isSearchOpen) {
+      setSearchTerm('');
+    }
+  }, [isSearchOpen]);
 
   const handleOpenAgentCreation = () => {
     setMobileWorkspaceOpen(false);
@@ -523,7 +519,7 @@ export function ChatPage() {
     }
   };
 
-  const normalizedSearchTerm = searchTerm.trim().toLowerCase();
+  const normalizedSearchTerm = isSearchOpen ? searchTerm.trim().toLowerCase() : '';
   const filteredMessages = useMemo(() => {
     if (!activeChat) {
       return [];
@@ -569,10 +565,6 @@ export function ChatPage() {
             userName={currentUser?.name}
             userAvatar={accountAvatar}
             onOpenProfile={() => navigate('/profile')}
-            agents={agentSwitcherOptions}
-            activeAgentId={selectedAgent?.id ?? null}
-            onSelectAgent={handleSelectAgent}
-            onCreateAgent={handleOpenAgentCreation}
           />
 
           {remoteSyncError && (
@@ -609,33 +601,46 @@ export function ChatPage() {
             ) : hasAgents ? (
               <>
                 <div className="border-b border-white/10 bg-[#111111] px-4 py-4 md:px-8">
-                  <label className="block text-xs uppercase tracking-[0.3em] text-white/40">
-                    Chat durchsuchen
-                  </label>
-                  <div className="mt-2 flex items-center gap-3">
-                    <input
-                      type="search"
-                      value={searchTerm}
-                      onChange={(event) => setSearchTerm(event.target.value)}
-                      placeholder="Nachrichten durchsuchen"
-                      className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white placeholder:text-white/40 focus:border-brand-gold/60 focus:outline-none"
-                    />
-                    {searchTerm && (
-                      <button
-                        type="button"
-                        onClick={() => setSearchTerm('')}
-                        className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-white/70 transition hover:bg-white/10"
-                      >
-                        Zurücksetzen
-                      </button>
-                    )}
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.3em] text-white/40">Chat durchsuchen</p>
+                      {isSearchOpen && matchCount !== null && (
+                        <p className="mt-1 text-xs text-white/50">
+                          {matchCount === 0
+                            ? 'Keine Nachrichten gefunden.'
+                            : `${matchCount} ${matchCount === 1 ? 'Treffer' : 'Treffer'} gefunden.`}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSearchOpen((previous) => !previous)}
+                      className="rounded-full border border-white/10 bg-white/5 p-2 text-white/70 transition hover:bg-white/10"
+                      aria-label={isSearchOpen ? 'Suche schließen' : 'Suche öffnen'}
+                    >
+                      <MagnifyingGlassIcon className="h-5 w-5" />
+                    </button>
                   </div>
-                  {matchCount !== null && (
-                    <p className="mt-2 text-xs text-white/50">
-                      {matchCount === 0
-                        ? 'Keine Nachrichten gefunden.'
-                        : `${matchCount} ${matchCount === 1 ? 'Treffer' : 'Treffer'} gefunden.`}
-                    </p>
+                  {isSearchOpen && (
+                    <div className="mt-3 flex items-center gap-3">
+                      <input
+                        type="search"
+                        value={searchTerm}
+                        onChange={(event) => setSearchTerm(event.target.value)}
+                        placeholder="Nachrichten durchsuchen"
+                        className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white placeholder:text-white/40 focus:border-brand-gold/60 focus:outline-none"
+                        autoFocus
+                      />
+                      {searchTerm && (
+                        <button
+                          type="button"
+                          onClick={() => setSearchTerm('')}
+                          className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-white/70 transition hover:bg-white/10"
+                        >
+                          Zurücksetzen
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
 
