@@ -21,6 +21,7 @@ export interface ChatRow {
   last_message_at?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
+  agent_id?: string | null;
 }
 
 export interface ChatUpdatePayload {
@@ -222,18 +223,20 @@ export const fetchChatsForProfile = async (profileId: string): Promise<ChatRow[]
 
 export const mapChatRowToChat = (
   row: ChatRow,
-  foldersById: Map<string, FolderRecord>
+  foldersById?: Map<string, FolderRecord>
 ): Chat => {
   const title = (row.title ?? row.name ?? 'Neuer Chat').trim();
   const messages = parseMessages(row.messages);
   const lastMessage = messages.length > 0 ? messages[messages.length - 1] : undefined;
   const previewSource = row.summary ?? lastMessage?.content ?? '';
   const folderId = row.folder_id ?? undefined;
-  const folderName = folderId ? foldersById.get(folderId)?.name : undefined;
+  const folderName = folderId && foldersById ? foldersById.get(folderId)?.name : undefined;
   const lastTimestamp = row.last_message_at ?? row.updated_at ?? row.created_at ?? new Date().toISOString();
+  const agentId = typeof row.agent_id === 'string' ? row.agent_id : '';
 
   return {
     id: row.id,
+    agentId,
     name: title.length > 0 ? title : 'Neuer Chat',
     folder: folderName,
     folderId,
@@ -252,7 +255,8 @@ const buildChatInsertPayload = (profileId: string, chat: Chat) => {
     messages: chat.messages,
     folder_id: chat.folderId ?? null,
     summary: chat.preview,
-    last_message_at: nowIso
+    last_message_at: nowIso,
+    agent_id: chat.agentId
   };
 };
 
@@ -296,6 +300,10 @@ export const createChatForProfile = async (
     } else if (!handled.has('folder_id') && 'folder_id' in currentPayload && isMissingColumnError(error, 'folder_id')) {
       handled.add('folder_id');
       const { folder_id: _unusedFolder, ...rest } = currentPayload;
+      currentPayload = rest;
+    } else if (!handled.has('agent_id') && 'agent_id' in currentPayload && isMissingColumnError(error, 'agent_id')) {
+      handled.add('agent_id');
+      const { agent_id: _unusedAgent, ...rest } = currentPayload;
       currentPayload = rest;
     } else {
       throw error;
@@ -372,6 +380,14 @@ export const updateChatRow = async (chatId: string, updates: ChatUpdatePayload) 
     ) {
       handled.add('folder_id');
       const { folder_id: _unusedFolder, ...rest } = currentPayload;
+      currentPayload = rest;
+    } else if (
+      !handled.has('agent_id') &&
+      'agent_id' in currentPayload &&
+      isMissingColumnError(error, 'agent_id')
+    ) {
+      handled.add('agent_id');
+      const { agent_id: _unusedAgent, ...rest } = currentPayload;
       currentPayload = rest;
     } else if (!handled.has('messages') && 'messages' in currentPayload && isMissingColumnError(error, 'messages')) {
       handled.add('messages');

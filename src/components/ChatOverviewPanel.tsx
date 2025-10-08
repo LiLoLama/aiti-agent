@@ -1,118 +1,46 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Chat } from '../data/sampleChats';
-import {
-  PencilIcon,
-  TrashIcon,
-  FolderPlusIcon,
-  ChevronRightIcon,
-  XMarkIcon,
-  PlusIcon,
-  FolderArrowDownIcon
-} from '@heroicons/react/24/outline';
 import clsx from 'clsx';
+import { PlusIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import { Chat } from '../data/sampleChats';
 import aitiLogo from '../assets/aiti-logo.svg';
+import type { AgentProfile } from '../types/auth';
 
 interface ChatOverviewPanelProps {
-  chats: Chat[];
-  activeChatId: string;
-  onSelectChat: (chatId: string) => void;
+  agents: AgentProfile[];
+  agentChats: Record<string, Chat | undefined>;
+  activeAgentId: string | null;
+  onSelectAgent: (agentId: string) => void;
   isMobileOpen: boolean;
   onCloseMobile: () => void;
-  onNewChat: () => void;
-  onCreateFolder: () => void;
-  onRenameChat: (chatId: string) => void;
-  onDeleteChat: (chatId: string) => void;
-  customFolders: string[];
-  onAssignChatFolder: (chatId: string) => void;
-  onDeleteFolder: (folder: string) => void;
+  onCreateAgent: () => void;
+  defaultAgentAvatar: string;
 }
 
 export function ChatOverviewPanel({
-  chats,
-  activeChatId,
-  onSelectChat,
+  agents,
+  agentChats,
+  activeAgentId,
+  onSelectAgent,
   isMobileOpen,
   onCloseMobile,
-  onNewChat,
-  onCreateFolder,
-  onRenameChat,
-  onDeleteChat,
-  customFolders,
-  onAssignChatFolder,
-  onDeleteFolder
+  onCreateAgent,
+  defaultAgentAvatar
 }: ChatOverviewPanelProps) {
-  const chatsByFolder = useMemo(() => {
-    return chats.reduce<Record<string, Chat[]>>((acc, chat) => {
-      if (!chat.folder) {
-        return acc;
-      }
-
-      acc[chat.folder] = acc[chat.folder] ? [...acc[chat.folder], chat] : [chat];
-      return acc;
-    }, {});
-  }, [chats]);
-
-  const folders = useMemo(() => {
-    const folderSet = new Set<string>([
-      ...Object.keys(chatsByFolder),
-      ...customFolders
-    ]);
-
-    return Array.from(folderSet).sort((a, b) => a.localeCompare(b));
-  }, [chatsByFolder, customFolders]);
-
-  const unassignedChats = useMemo(
-    () => chats.filter((chat) => !chat.folder),
-    [chats]
-  );
-
-  const [openFolders, setOpenFolders] = useState<Record<string, boolean>>({});
-
-  useEffect(() => {
-    setOpenFolders((prev) => {
-      const nextState = folders.reduce<Record<string, boolean>>((acc, folder) => {
-        acc[folder] = prev[folder] ?? false;
-        return acc;
-      }, {});
-
-      const activeFolder = chats.find((chat) => chat.id === activeChatId)?.folder;
-      if (activeChatId && activeFolder && activeFolder in nextState) {
-        nextState[activeFolder] = true;
-      }
-
-      return nextState;
-    });
-  }, [folders, activeChatId, chats]);
-
-  const toggleFolder = (folder: string) => {
-    setOpenFolders((prev) => ({
-      ...prev,
-      [folder]: !prev[folder]
-    }));
-  };
-
   const PanelContent = (
     <div className="flex h-full flex-col">
       <div className="border-b border-white/10 px-6 py-6">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-xs uppercase tracking-[0.28em] text-white/40">Workspace</p>
+            <p className="text-xs uppercase tracking-[0.28em] text-white/40">Agents</p>
             <div className="mt-1 flex items-center gap-3">
               <img src={aitiLogo} alt="AITI Explorer Agent" className="h-9 w-9" />
-              <h3 className="text-lg font-semibold text-white">AITI Explorer Agent</h3>
+              <h3 className="text-lg font-semibold text-white">Deine Agenten</h3>
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
               <button
-                onClick={onNewChat}
-                className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-brand-gold via-brand-deep to-brand-gold px-4 py-2 text-xs font-semibold text-surface-base shadow-glow hover:opacity-90"
+                onClick={onCreateAgent}
+                className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-brand-gold via-brand-deep to-brand-gold px-4 py-2 text-xs font-semibold text-surface-base shadow-glow transition hover:opacity-90"
               >
-                <PlusIcon className="h-4 w-4" /> Neuer Chat
-              </button>
-              <button
-                onClick={onCreateFolder}
-                className="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-xs font-semibold text-white/70 transition hover:bg-white/10"
-              >
-                <FolderPlusIcon className="h-4 w-4" /> Ordner anlegen
+                <PlusIcon className="h-4 w-4" /> Neuen Agent anlegen
               </button>
             </div>
           </div>
@@ -127,163 +55,62 @@ export function ChatOverviewPanel({
         </div>
       </div>
 
-      <div className="custom-scrollbar flex-1 space-y-4 overflow-y-auto px-6 py-6">
-        {folders.map((folder) => {
-          const folderChats = chatsByFolder[folder] ?? [];
-          const isOpen = openFolders[folder] ?? false;
-
-          return (
-            <div key={folder} className="rounded-2xl border border-white/5 bg-white/[0.03]">
-              <button
-                onClick={() => toggleFolder(folder)}
-                className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm font-semibold text-white/70"
-              >
-                <span className="flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-white/50">
-                  <ChevronRightIcon
-                    className={clsx('h-4 w-4 transition-transform', isOpen && 'rotate-90')}
-                  />
-                  {folder}
-                </span>
-                <span className="text-[10px] uppercase tracking-[0.25em] text-white/30">
-                  {folderChats.length}
-                </span>
-              </button>
-
-              {isOpen && (
-                <div className="space-y-3 border-t border-white/5 px-4 py-4">
-                  {folderChats.length === 0 && (
-                    <p className="text-xs text-white/40">Noch keine Chats in diesem Ordner.</p>
-                  )}
-                  {folderChats.map((chat) => (
-                    <div
-                      key={chat.id}
-                      className={clsx(
-                        'rounded-2xl border px-4 py-3 transition',
-                        chat.id === activeChatId
-                          ? 'border-brand-gold/50 bg-white/5 shadow-glow'
-                          : 'border-white/5 bg-white/[0.02] hover:bg-white/10'
-                      )}
-                    >
-                      <button
-                        onClick={() => onSelectChat(chat.id)}
-                        className="w-full text-left"
-                      >
-                        <div className="flex items-center justify-between">
-                          <h4 className="text-sm font-semibold text-white">{chat.name}</h4>
-                          <span className="text-[10px] uppercase tracking-[0.25em] text-white/40">
-                            {chat.lastUpdated}
-                          </span>
-                        </div>
-                        <p className="mt-2 text-xs text-white/50 line-clamp-2">{chat.preview}</p>
-                      </button>
-                      <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                        <button
-                          onClick={() => onRenameChat(chat.id)}
-                          className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-3 py-2 text-white/70 hover:bg-white/20"
-                        >
-                          <PencilIcon className="h-4 w-4" /> Umbenennen
-                        </button>
-                        <button
-                          onClick={() => onDeleteChat(chat.id)}
-                          className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-3 py-2 text-rose-300 hover:bg-white/20"
-                        >
-                          <TrashIcon className="h-4 w-4" /> Löschen
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                  <div className="pt-2 text-right">
-                    <button
-                      onClick={() => onDeleteFolder(folder)}
-                      className="inline-flex items-center gap-2 rounded-xl border border-white/10 px-3 py-2 text-rose-300 transition hover:bg-white/10"
-                    >
-                      <TrashIcon className="h-4 w-4" /> Ordner löschen
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })}
-
-        <div className="space-y-3 rounded-2xl border border-white/5 bg-white/[0.03] p-4">
-          <div className="flex items-center justify-between text-xs uppercase tracking-[0.2em] text-white/50">
-            <span>Chats ohne Ordner</span>
-            <span className="text-[10px] tracking-[0.25em] text-white/30">{unassignedChats.length}</span>
+      <div className="custom-scrollbar flex-1 space-y-3 overflow-y-auto px-6 py-6">
+        {agents.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.03] px-4 py-6 text-center text-sm text-white/60">
+            Noch keine Agenten vorhanden. Lege deinen ersten Agenten an, um zu starten.
           </div>
+        ) : (
+          agents.map((agent) => {
+            const chat = agentChats[agent.id];
+            const lastUpdated = chat?.lastUpdated ?? 'Noch kein Verlauf';
+            const preview = chat?.preview ?? 'Noch keine Nachrichten verfügbar.';
+            const avatar = agent.avatarUrl ?? defaultAgentAvatar;
 
-          {unassignedChats.length === 0 ? (
-            <p className="text-xs text-white/40">Noch keine Chats ohne Ordner.</p>
-          ) : (
-            <div className="space-y-3">
-              {unassignedChats.map((chat) => (
-                <div
-                  key={chat.id}
-                  className={clsx(
-                    'rounded-2xl border px-4 py-3 transition',
-                    chat.id === activeChatId
-                      ? 'border-brand-gold/50 bg-white/5 shadow-glow'
-                      : 'border-white/5 bg-white/[0.02] hover:bg-white/10'
-                  )}
-                >
-                  <button onClick={() => onSelectChat(chat.id)} className="w-full text-left">
-                    <div className="flex items-center justify-between">
-                      <h4 className="text-sm font-semibold text-white">{chat.name}</h4>
-                      <span className="text-[10px] uppercase tracking-[0.25em] text-white/40">
-                        {chat.lastUpdated}
-                      </span>
-                    </div>
-                    <p className="mt-2 text-xs text-white/50 line-clamp-2">{chat.preview}</p>
-                  </button>
-                  <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                    <button
-                      onClick={() => onAssignChatFolder(chat.id)}
-                      className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-3 py-2 text-white/70 hover:bg-white/20"
-                    >
-                      <FolderArrowDownIcon className="h-4 w-4" /> In Ordner verschieben
-                    </button>
-                    <button
-                      onClick={() => onRenameChat(chat.id)}
-                      className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-3 py-2 text-white/70 hover:bg-white/20"
-                    >
-                      <PencilIcon className="h-4 w-4" /> Umbenennen
-                    </button>
-                    <button
-                      onClick={() => onDeleteChat(chat.id)}
-                      className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-3 py-2 text-rose-300 hover:bg-white/20"
-                    >
-                      <TrashIcon className="h-4 w-4" /> Löschen
-                    </button>
-                  </div>
+            return (
+              <button
+                key={agent.id}
+                onClick={() => onSelectAgent(agent.id)}
+                className={clsx(
+                  'flex w-full items-center gap-4 rounded-2xl border px-4 py-3 text-left transition',
+                  agent.id === activeAgentId
+                    ? 'border-brand-gold/60 bg-white/10 text-white shadow-glow'
+                    : 'border-white/5 bg-white/[0.03] text-white/80 hover:bg-white/10'
+                )}
+              >
+                <div className="relative h-14 w-14 overflow-hidden rounded-2xl border border-white/10 shadow-lg">
+                  <img src={avatar} alt={agent.name} className="h-full w-full object-cover" />
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {folders.length === 0 && unassignedChats.length === 0 && (
-          <p className="text-xs text-white/40">Noch keine Chats vorhanden.</p>
+                <div className="flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <h4 className="text-sm font-semibold text-white">{agent.name}</h4>
+                    <span className="text-[10px] uppercase tracking-[0.25em] text-white/40">{lastUpdated}</span>
+                  </div>
+                  {agent.description && (
+                    <p className="mt-1 text-xs text-white/50 line-clamp-1">{agent.description}</p>
+                  )}
+                  <p className="mt-2 text-xs text-white/60 line-clamp-2">{preview}</p>
+                </div>
+              </button>
+            );
+          })
         )}
       </div>
-
     </div>
   );
 
   return (
-    <>
-      <aside className="hidden w-96 flex-shrink-0 flex-col border-r border-white/10 bg-[#161616]/90 backdrop-blur-xl lg:sticky lg:top-0 lg:flex lg:h-screen lg:overflow-hidden">
-        {PanelContent}
-      </aside>
-
-      {isMobileOpen && (
-        <div className="fixed inset-0 z-40 overflow-y-auto bg-black/80 px-4 pb-24 pt-10 lg:hidden">
-          <div className="mx-auto flex min-h-full w-full max-w-lg items-end justify-center">
-            <div className="relative max-h-[85vh] w-full overflow-hidden rounded-3xl border border-white/10 bg-[#161616]/95 backdrop-blur-xl shadow-glow">
-              <div className="flex max-h-[inherit] flex-col overflow-hidden">{PanelContent}</div>
-            </div>
-          </div>
-        </div>
+    <aside
+      className={clsx(
+        'relative z-30 flex w-full max-w-md flex-shrink-0 flex-col border-r border-white/10 bg-[#121212]/95 text-white shadow-2xl backdrop-blur-xl transition-transform duration-300 lg:translate-x-0',
+        isMobileOpen ? 'translate-x-0' : 'translate-x-[-100%] lg:translate-x-0',
+        'lg:relative lg:max-w-sm'
       )}
-    </>
+    >
+      <div className="hidden lg:block lg:h-full">{PanelContent}</div>
+      <div className={clsx('lg:hidden', isMobileOpen ? 'block' : 'hidden')}>
+        {PanelContent}
+      </div>
+    </aside>
   );
 }
