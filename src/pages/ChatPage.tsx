@@ -60,6 +60,7 @@ export function ChatPage() {
   const [isLoadingRemoteData, setIsLoadingRemoteData] = useState(false);
   const [remoteSyncError, setRemoteSyncError] = useState<string | null>(null);
   const [pendingResponseAgentId, setPendingResponseAgentId] = useState<string | null>(null);
+  const [unsyncedAgentIds, setUnsyncedAgentIds] = useState<Record<string, boolean>>({});
   const [searchTerm, setSearchTerm] = useState('');
   const [isSearchOpen, setSearchOpen] = useState(false);
   const hasRemoteProfile = currentUser?.hasRemoteProfile ?? false;
@@ -159,20 +160,21 @@ export function ChatPage() {
     applyColorScheme(settings.colorScheme);
   }, [settings.colorScheme]);
 
-  const ensureRemoteProfile = () => {
+  const ensureRemoteProfile = useCallback(() => {
     if (!currentUser?.hasRemoteProfile) {
       window.alert(remoteProfileSetupMessage);
       return false;
     }
 
     return true;
-  };
+  }, [currentUser?.hasRemoteProfile, remoteProfileSetupMessage]);
 
   useEffect(() => {
     if (!currentUser) {
       setAgentChats({});
       setIsLoadingRemoteData(false);
       setRemoteSyncError(null);
+      setUnsyncedAgentIds({});
       return;
     }
 
@@ -180,6 +182,7 @@ export function ChatPage() {
       setAgentChats({});
       setIsLoadingRemoteData(false);
       setRemoteSyncError(remoteProfileSetupMessage);
+      setUnsyncedAgentIds({});
       return;
     }
 
@@ -210,6 +213,20 @@ export function ChatPage() {
         }, {});
 
         setAgentChats(mappedChats);
+        setUnsyncedAgentIds((previous) => {
+          if (Object.keys(previous).length === 0) {
+            return previous;
+          }
+
+          const next = { ...previous };
+          for (const agentId of Object.keys(mappedChats)) {
+            if (next[agentId]) {
+              delete next[agentId];
+            }
+          }
+
+          return next;
+        });
       } catch (error) {
         console.error('Chats konnten nicht geladen werden.', error);
         if (isSubscribed) {
@@ -230,7 +247,7 @@ export function ChatPage() {
   }, [currentUser, remoteProfileSetupMessage]);
 
   const ensureAgentChat = useCallback(
-    async (agent: AgentProfile): Promise<Chat | null> => {
+    async (agent: AgentProfile, canPersistRemotely: boolean): Promise<Chat | null> => {
       if (!currentUser) {
         return null;
       }
@@ -238,10 +255,6 @@ export function ChatPage() {
       const existing = agentChats[agent.id];
       if (existing) {
         return existing;
-      }
-
-      if (!ensureRemoteProfile()) {
-        return null;
       }
 
       const timestamp = new Date();
@@ -277,28 +290,37 @@ export function ChatPage() {
         };
       });
 
+      if (!canPersistRemotely) {
+        setUnsyncedAgentIds((previous) => ({ ...previous, [agent.id]: true }));
+        return newChat;
+      }
+
       try {
         await createChatForProfile(currentUser.id, newChat);
-        return newChat;
-      } catch (error) {
-        console.error('Chat konnte nicht erstellt werden.', error);
-        setAgentChats((prev) => {
-          const next = { ...prev };
-          if (next[agent.id]?.id === newChat.id) {
-            delete next[agent.id];
+        setUnsyncedAgentIds((previous) => {
+          if (!previous[agent.id]) {
+            return previous;
           }
+          const next = { ...previous };
+          delete next[agent.id];
           return next;
         });
-        window.alert('Chat konnte nicht erstellt werden. Bitte versuche es erneut.');
-        return null;
+      } catch (error) {
+        console.error('Chat konnte nicht erstellt werden.', error);
+        setUnsyncedAgentIds((previous) => ({ ...previous, [agent.id]: true }));
+        window.alert(
+          'Chat konnte nicht in Supabase gespeichert werden. Die Unterhaltung wird lokal fortgesetzt.'
+        );
       }
+
+      return newChat;
     },
-    [agentChats, currentUser, ensureRemoteProfile, settings.profileName]
+    [agentChats, currentUser, settings.profileName]
   );
 
   useEffect(() => {
-    if (selectedAgent && currentUser?.hasRemoteProfile) {
-      void ensureAgentChat(selectedAgent);
+    if (selectedAgent) {
+      void ensureAgentChat(selectedAgent, currentUser?.hasRemoteProfile ?? false);
     }
   }, [selectedAgent, currentUser?.hasRemoteProfile, ensureAgentChat]);
 
@@ -332,11 +354,10 @@ export function ChatPage() {
       return;
     }
 
-    if (!ensureRemoteProfile()) {
-      return;
-    }
+    const canPersistRemotely = ensureRemoteProfile();
 
-    const existingChat = agentChats[selectedAgent.id] ?? (await ensureAgentChat(selectedAgent));
+    const existingChat =
+      agentChats[selectedAgent.id] ?? (await ensureAgentChat(selectedAgent, canPersistRemotely));
     if (!existingChat) {
       return;
     }
@@ -403,8 +424,6 @@ export function ChatPage() {
       preview: previewText
     };
 
-    const previousChatState = existingChat;
-
     setAgentChats((prev) => ({
       ...prev,
       [selectedAgent.id]: chatAfterUserMessage
@@ -412,21 +431,46 @@ export function ChatPage() {
 
     setPendingResponseAgentId(selectedAgent.id);
 
-    try {
-      await updateChatRow(chatAfterUserMessage.id, {
-        messages: chatAfterUserMessage.messages,
-        summary: chatAfterUserMessage.preview,
-        lastMessageAt: now.toISOString()
-      });
-    } catch (error) {
-      console.error('Nachricht konnte nicht gespeichert werden.', error);
-      window.alert('Deine Nachricht konnte nicht gespeichert werden. Bitte versuche es erneut.');
-      setAgentChats((prev) => ({
-        ...prev,
-        [selectedAgent.id]: previousChatState
-      }));
-      setPendingResponseAgentId(null);
-      return;
+    const wasUnsynced = Boolean(unsyncedAgentIds[selectedAgent.id]);
+
+    if (canPersistRemotely) {
+      if (wasUnsynced && currentUser.id) {
+        try {
+          await createChatForProfile(currentUser.id, chatAfterUserMessage);
+        } catch (creationError) {
+          const message =
+            creationError instanceof Error ? creationError.message.toLowerCase() : '';
+          if (!message.includes('duplicate key value')) {
+            console.error('Chat konnte nicht synchronisiert werden.', creationError);
+          }
+        }
+      }
+
+      try {
+        await updateChatRow(chatAfterUserMessage.id, {
+          messages: chatAfterUserMessage.messages,
+          summary: chatAfterUserMessage.preview,
+          lastMessageAt: now.toISOString()
+        });
+        setUnsyncedAgentIds((previous) => {
+          if (!previous[selectedAgent.id]) {
+            return previous;
+          }
+          const next = { ...previous };
+          delete next[selectedAgent.id];
+          return next;
+        });
+      } catch (error) {
+        console.error('Nachricht konnte nicht gespeichert werden.', error);
+        setUnsyncedAgentIds((previous) => ({ ...previous, [selectedAgent.id]: true }));
+        if (!wasUnsynced) {
+          window.alert(
+            'Deine Nachricht konnte nicht in Supabase gespeichert werden. Sie wird trotzdem an den Webhook gesendet.'
+          );
+        }
+      }
+    } else {
+      setUnsyncedAgentIds((previous) => ({ ...previous, [selectedAgent.id]: true }));
     }
 
     const effectiveWebhookUrl = selectedAgent.webhookUrl?.trim() || settings.webhookUrl;
@@ -471,14 +515,16 @@ export function ChatPage() {
         [selectedAgent.id]: chatAfterAgent
       }));
 
-      try {
-        await updateChatRow(chatAfterAgent.id, {
-          messages: messagesWithAgent,
-          summary: agentPreview,
-          lastMessageAt: responseDate.toISOString()
-        });
-      } catch (persistError) {
-        console.error('Antwort konnte nicht gespeichert werden.', persistError);
+      if (canPersistRemotely) {
+        try {
+          await updateChatRow(chatAfterAgent.id, {
+            messages: messagesWithAgent,
+            summary: agentPreview,
+            lastMessageAt: responseDate.toISOString()
+          });
+        } catch (persistError) {
+          console.error('Antwort konnte nicht gespeichert werden.', persistError);
+        }
       }
     } catch (error) {
       const errorDate = new Date();
@@ -505,14 +551,16 @@ export function ChatPage() {
         [selectedAgent.id]: chatWithError
       }));
 
-      try {
-        await updateChatRow(chatWithError.id, {
-          messages: messagesWithError,
-          summary: errorPreview,
-          lastMessageAt: errorDate.toISOString()
-        });
-      } catch (persistError) {
-        console.error('Fehlernachricht konnte nicht gespeichert werden.', persistError);
+      if (canPersistRemotely) {
+        try {
+          await updateChatRow(chatWithError.id, {
+            messages: messagesWithError,
+            summary: errorPreview,
+            lastMessageAt: errorDate.toISOString()
+          });
+        } catch (persistError) {
+          console.error('Fehlernachricht konnte nicht gespeichert werden.', persistError);
+        }
       }
     } finally {
       setPendingResponseAgentId(null);
@@ -601,17 +649,14 @@ export function ChatPage() {
             ) : hasAgents ? (
               <>
                 <div className="border-b border-white/10 bg-[#111111] px-4 py-4 md:px-8">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-xs uppercase tracking-[0.3em] text-white/40">Chat durchsuchen</p>
-                      {isSearchOpen && matchCount !== null && (
-                        <p className="mt-1 text-xs text-white/50">
-                          {matchCount === 0
-                            ? 'Keine Nachrichten gefunden.'
-                            : `${matchCount} ${matchCount === 1 ? 'Treffer' : 'Treffer'} gefunden.`}
-                        </p>
-                      )}
-                    </div>
+                  <div className="flex items-center justify-end gap-3">
+                    {isSearchOpen && matchCount !== null && (
+                      <p className="text-xs text-white/50">
+                        {matchCount === 0
+                          ? 'Keine Nachrichten gefunden.'
+                          : `${matchCount} ${matchCount === 1 ? 'Treffer' : 'Treffer'} gefunden.`}
+                      </p>
+                    )}
                     <button
                       type="button"
                       onClick={() => setSearchOpen((previous) => !previous)}
