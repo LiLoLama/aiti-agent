@@ -509,8 +509,9 @@ export function ChatPage() {
             onOpenProfile={() => navigate('/profile')}
           />
 
-          <div className="hidden px-4 pt-4 md:px-6 lg:flex">
+          <div className="hidden items-center px-4 pt-4 md:px-6 lg:flex">
             <button
+              type="button"
               onClick={() => setWorkspaceCollapsed((prev) => !prev)}
               className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/[0.02] p-2 text-white/60 transition hover:bg-white/10"
               aria-label={isWorkspaceCollapsed ? 'Agentenliste anzeigen' : 'Agentenliste ausblenden'}
@@ -521,6 +522,16 @@ export function ChatPage() {
                 <ChevronDoubleLeftIcon className="h-5 w-5" />
               )}
             </button>
+            {hasAgents && (
+              <button
+                type="button"
+                onClick={() => setSearchOpen((previous) => !previous)}
+                className="ml-auto inline-flex items-center justify-center rounded-full border border-white/10 bg-white/5 p-2 text-white/70 transition hover:bg-white/10"
+                aria-label={isSearchOpen ? 'Suche schließen' : 'Suche öffnen'}
+              >
+                <MagnifyingGlassIcon className="h-5 w-5" />
+              </button>
+            )}
           </div>
 
           <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
@@ -538,7 +549,7 @@ export function ChatPage() {
                     <button
                       type="button"
                       onClick={() => setSearchOpen((previous) => !previous)}
-                      className="rounded-full border border-white/10 bg-white/5 p-2 text-white/70 transition hover:bg-white/10"
+                      className="rounded-full border border-white/10 bg-white/5 p-2 text-white/70 transition hover:bg-white/10 lg:hidden"
                       aria-label={isSearchOpen ? 'Suche schließen' : 'Suche öffnen'}
                     >
                       <MagnifyingGlassIcon className="h-5 w-5" />
