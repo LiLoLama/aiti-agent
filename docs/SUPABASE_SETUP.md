@@ -38,6 +38,11 @@ Die Chat-Daten werden in einer separaten Tabelle `agent_conversations` gespeiche
 | `last_message_at` | `timestamptz`| Zeitpunkt der letzten Nachricht.                                 |
 | `created_at`      | `timestamptz`| Standard `now()`.                                                |
 | `updated_at`      | `timestamptz`| Optional.                                                        |
+| `agent_name`      | `text`       | Klarname des Agents (wird auch als Chat-Titel genutzt).          |
+| `agent_description` | `text`    | Beschreibung/Rolle des Agents.                                   |
+| `agent_avatar_url` | `text`     | Optionale Avatar-URL für den Agent.                              |
+| `agent_tools`     | `jsonb`      | Liste der Tool-Bezeichner (Array von Strings).                   |
+| `agent_webhook_url` | `text`    | Ziel-Webhook für eingehende Nachrichten.                         |
 
 ### Indizes und Constraints
 
@@ -75,7 +80,7 @@ create policy "Users can delete own agent chats"
   using (profile_id = auth.uid());
 ```
 
-> Die Anwendung erstellt fehlende Chats automatisch. Der eindeutige Index stellt sicher, dass pro Agent nur ein Chat erzeugt werden kann.
+> Die Anwendung erstellt fehlende Chats automatisch und pflegt Agent-Stammdaten direkt in dieser Tabelle. Der eindeutige Index stellt sicher, dass pro Agent nur ein Chat erzeugt werden kann.
 
 ## 3. Erwartete Umgebungsvariablen
 

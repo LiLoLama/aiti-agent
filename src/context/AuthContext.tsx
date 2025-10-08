@@ -20,6 +20,13 @@ import {
   UserRole
 } from '../types/auth';
 import { supabase } from '../utils/supabase';
+import {
+  deleteAgentForProfile,
+  fetchAgentProfilesForProfile,
+  fetchAgentProfilesForProfiles,
+  saveAgentMetadataForProfile
+} from '../services/chatService';
+import { createAgentId, sanitizeAgentProfile } from '../utils/agents';
 
 interface AuthContextValue {
   currentUser: AuthUser | null;
@@ -45,7 +52,6 @@ type ProfileRow = {
   role: UserRole | null;
   created_at: string | null;
   updated_at: string | null;
-  agents: string | null;
   bio: string | null;
   email_verified: string | null;
   is_active: boolean | null;
@@ -54,44 +60,6 @@ type ProfileRow = {
 
 const isRowLevelSecurityError = (error: PostgrestError) =>
   error.message.toLowerCase().includes('row-level security');
-
-const sanitizeAgent = (agent: AgentProfile): AgentProfile => ({
-  ...agent,
-  name: agent.name.trim(),
-  description: agent.description.trim(),
-  tools: agent.tools.map((tool) => tool.trim()).filter((tool) => tool.length > 0),
-  webhookUrl: agent.webhookUrl.trim()
-});
-
-const parseAgents = (value: string | null): AgentProfile[] => {
-  if (!value) {
-    return [];
-  }
-
-  try {
-    const parsed = JSON.parse(value);
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-
-    return parsed
-      .filter((candidate): candidate is AgentProfile => Boolean(candidate))
-      .map((candidate) => ({
-        id: candidate.id,
-        name: candidate.name,
-        description: candidate.description,
-        avatarUrl: candidate.avatarUrl ?? null,
-        tools: candidate.tools ?? [],
-        webhookUrl: candidate.webhookUrl ?? ''
-      }))
-      .map(sanitizeAgent);
-  } catch (error) {
-    console.error('Agents konnten nicht geparst werden.', error);
-    return [];
-  }
-};
-
-const stringifyAgents = (agents: AgentProfile[]): string => JSON.stringify(agents);
 
 const resolveDisplayName = (row: ProfileRow | null, fallbackEmail: string | null, override?: string) => {
   if (override && override.trim().length > 0) {
@@ -110,7 +78,7 @@ const resolveDisplayName = (row: ProfileRow | null, fallbackEmail: string | null
   return 'Neuer Nutzer';
 };
 
-const mapRowToAuthUser = (row: ProfileRow, overrideName?: string): AuthUser => ({
+const mapRowToAuthUser = (row: ProfileRow, agents: AgentProfile[], overrideName?: string): AuthUser => ({
   id: row.id,
   name: resolveDisplayName(row, row.email, overrideName),
   email: row.email ?? '',
@@ -118,7 +86,7 @@ const mapRowToAuthUser = (row: ProfileRow, overrideName?: string): AuthUser => (
   isActive: row.is_active ?? true,
   avatarUrl: row.avatar_url,
   emailVerified: (row.email_verified ?? '').toLowerCase() === 'true',
-  agents: parseAgents(row.agents),
+  agents,
   bio: row.bio ?? undefined,
   hasRemoteProfile: true
 });
@@ -173,7 +141,6 @@ const createProfileInsertPayload = (
     role: 'user' as UserRole,
     created_at: now,
     updated_at: now,
-    agents: stringifyAgents([]),
     bio: '',
     email_verified: session.user.email_confirmed_at ? 'true' : 'false',
     is_active: true
@@ -199,6 +166,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return data.session;
   }, []);
 
+  const loadAgentsForProfile = useCallback(async (profileId: string): Promise<AgentProfile[]> => {
+    try {
+      const agents = await fetchAgentProfilesForProfile(profileId);
+      return agents.map(sanitizeAgentProfile);
+    } catch (error) {
+      console.error('Agents konnten nicht geladen werden.', error);
+      return [];
+    }
+  }, []);
+
   const ensureProfileForSession = useCallback(
     async (session: Session, options?: { displayName?: string; email?: string }) => {
       const { data: existing, error: existingError } = await supabase
@@ -222,7 +199,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       if (existing) {
-        return mapRowToAuthUser(existing, options?.displayName);
+        const agents = await loadAgentsForProfile(existing.id);
+        return mapRowToAuthUser(existing, agents, options?.displayName);
       }
 
       const insertPayload = createProfileInsertPayload(session, options);
@@ -244,9 +222,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error(insertError.message);
       }
 
-      return mapRowToAuthUser(inserted, options?.displayName);
+      const agents = await loadAgentsForProfile(inserted.id);
+      return mapRowToAuthUser(inserted, agents, options?.displayName);
     },
-    []
+    [loadAgentsForProfile]
   );
 
   const fetchAllProfiles = useCallback(async () => {
@@ -260,7 +239,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     const rows = data ?? [];
-    return rows.map((row: ProfileRow) => mapRowToAuthUser(row));
+    const profileIds = rows.map((row) => row.id);
+    let agentsByProfile: Record<string, AgentProfile[]> = {};
+
+    try {
+      agentsByProfile = await fetchAgentProfilesForProfiles(profileIds);
+    } catch (error) {
+      console.error('Agents konnten nicht geladen werden.', error);
+    }
+
+    return rows.map((row: ProfileRow) => mapRowToAuthUser(row, agentsByProfile[row.id] ?? []));
   }, []);
 
   const updateUsersState = useCallback((updatedUser: AuthUser) => {
@@ -485,32 +473,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error(error.message);
       }
 
-      const updatedUser = mapRowToAuthUser(data);
+      const updatedUser = mapRowToAuthUser(data, currentUser.agents);
       setCurrentUser(updatedUser);
       updateUsersState(updatedUser);
     },
     [currentUser, ensureProfileForSession, ensureSession, updateUsersState]
-  );
-
-  const persistAgents = useCallback(
-    async (profileId: string, agents: AgentProfile[]) => {
-      const { data, error } = await supabase
-        .from('profiles')
-        .update({
-          agents: stringifyAgents(agents.map(sanitizeAgent)),
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', profileId)
-        .select()
-        .single<ProfileRow>();
-
-      if (error) {
-        throw new Error(error.message);
-      }
-
-      return mapRowToAuthUser(data);
-    },
-    []
   );
 
   const addAgent = useCallback(
@@ -536,25 +503,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         email: currentUser.email
       });
 
-      const newAgent: AgentProfile = {
-        id:
-          typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-            ? crypto.randomUUID()
-            : `agent-${Math.random().toString(36).slice(2, 10)}`,
+      const newAgent: AgentProfile = sanitizeAgentProfile({
+        id: createAgentId(),
         name: trimmedName,
-        description: agent.description.trim(),
+        description: agent.description,
         avatarUrl: agent.avatarUrl ?? null,
-        tools: agent.tools.map((tool) => tool.trim()).filter((tool) => tool.length > 0),
-        webhookUrl: agent.webhookUrl.trim()
-      };
+        tools: agent.tools,
+        webhookUrl: agent.webhookUrl
+      });
 
-      const nextAgents = [...currentUser.agents, newAgent];
-      const updatedUser = await persistAgents(currentUser.id, nextAgents);
+      await saveAgentMetadataForProfile(currentUser.id, newAgent);
+
+      const updatedUser: AuthUser = {
+        ...currentUser,
+        agents: [...currentUser.agents, newAgent]
+      };
 
       setCurrentUser(updatedUser);
       updateUsersState(updatedUser);
     },
-    [currentUser, ensureProfileForSession, ensureSession, persistAgents, updateUsersState]
+    [currentUser, ensureProfileForSession, ensureSession, updateUsersState]
   );
 
   const updateAgent = useCallback(
@@ -575,26 +543,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         email: currentUser.email
       });
 
+      const targetAgent = currentUser.agents.find((agent) => agent.id === agentId);
+      if (!targetAgent) {
+        throw new Error('Agent wurde nicht gefunden.');
+      }
+
+      const updatedAgent = sanitizeAgentProfile({
+        ...targetAgent,
+        ...updates,
+        name: updates.name ?? targetAgent.name,
+        description: updates.description ?? targetAgent.description,
+        avatarUrl: updates.avatarUrl ?? targetAgent.avatarUrl,
+        tools: updates.tools ?? targetAgent.tools,
+        webhookUrl: updates.webhookUrl ?? targetAgent.webhookUrl
+      });
+
+      await saveAgentMetadataForProfile(currentUser.id, updatedAgent);
+
       const nextAgents = currentUser.agents.map((agent) =>
-        agent.id === agentId
-          ? sanitizeAgent({
-              ...agent,
-              ...updates,
-              name: updates.name?.trim() ?? agent.name,
-              description: updates.description ?? agent.description,
-              avatarUrl: updates.avatarUrl ?? agent.avatarUrl,
-              tools: updates.tools ?? agent.tools,
-              webhookUrl: updates.webhookUrl ?? agent.webhookUrl
-            })
-          : agent
+        agent.id === agentId ? updatedAgent : agent
       );
 
-      const updatedUser = await persistAgents(currentUser.id, nextAgents);
+      const updatedUser: AuthUser = {
+        ...currentUser,
+        agents: nextAgents
+      };
 
       setCurrentUser(updatedUser);
       updateUsersState(updatedUser);
     },
-    [currentUser, ensureProfileForSession, ensureSession, persistAgents, updateUsersState]
+    [currentUser, ensureProfileForSession, ensureSession, updateUsersState]
   );
 
   const removeAgent = useCallback(
@@ -615,14 +593,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         email: currentUser.email
       });
 
-      const nextAgents = currentUser.agents.filter((agent) => agent.id !== agentId);
+      await deleteAgentForProfile(currentUser.id, agentId);
 
-      const updatedUser = await persistAgents(currentUser.id, nextAgents);
+      const nextAgents = currentUser.agents.filter((agent) => agent.id !== agentId);
+      const updatedUser: AuthUser = {
+        ...currentUser,
+        agents: nextAgents
+      };
 
       setCurrentUser(updatedUser);
       updateUsersState(updatedUser);
     },
-    [currentUser, ensureProfileForSession, ensureSession, persistAgents, updateUsersState]
+    [currentUser, ensureProfileForSession, ensureSession, updateUsersState]
   );
 
   const toggleUserActive = useCallback(
@@ -665,7 +647,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      const updatedUser = mapRowToAuthUser(data);
+      const existingAgents =
+        userId === currentUser.id
+          ? currentUser.agents
+          : users.find((user) => user.id === userId)?.agents ?? [];
+      const updatedUser = mapRowToAuthUser(data, existingAgents);
       updateUsersState(updatedUser);
 
       if (updatedUser.id === currentUser.id) {

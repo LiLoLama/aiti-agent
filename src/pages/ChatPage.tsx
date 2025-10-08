@@ -264,7 +264,7 @@ export function ChatPage() {
         : 'Hallo! Wie kann ich dir heute helfen?';
 
       const newChat: Chat = {
-        id: crypto.randomUUID(),
+        id: agent.id,
         agentId: agent.id,
         name: agent.name?.trim().length ? agent.name : 'Agent Chat',
         lastUpdated: formatTimestamp(timestamp),
@@ -296,7 +296,7 @@ export function ChatPage() {
       }
 
       try {
-        await createChatForProfile(currentUser.id, newChat);
+        await createChatForProfile(currentUser.id, newChat, agent);
         setUnsyncedAgentIds((previous) => {
           if (!previous[agent.id]) {
             return previous;
@@ -436,7 +436,7 @@ export function ChatPage() {
     if (canPersistRemotely) {
       if (wasUnsynced && currentUser.id) {
         try {
-          await createChatForProfile(currentUser.id, chatAfterUserMessage);
+          await createChatForProfile(currentUser.id, chatAfterUserMessage, selectedAgent);
         } catch (creationError) {
           const message =
             creationError instanceof Error ? creationError.message.toLowerCase() : '';
