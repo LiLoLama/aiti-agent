@@ -1,5 +1,4 @@
 import { AgentAuthType, AgentSettings } from '../types/settings';
-import { supabase } from '../utils/supabase';
 
 export interface IntegrationSecretRecord {
   id: string;
@@ -14,24 +13,60 @@ export interface IntegrationSecretRecord {
   updated_at?: string | null;
 }
 
+const STORAGE_PREFIX = 'aiti-integration-secret:';
+
+const generateId = () => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+
+  const segments = Array.from({ length: 5 }, () => Math.random().toString(16).slice(2, 10));
+  return `${segments[0]}-${segments[1].slice(0, 4)}-${segments[2].slice(0, 4)}-${segments[3].slice(0, 4)}-${segments[4]}${Math.random()
+    .toString(16)
+    .slice(2, 10)}`.slice(0, 36);
+};
+
+const storageKey = (profileId: string) => `${STORAGE_PREFIX}${profileId}`;
+
 const isAgentAuthType = (value: unknown): value is AgentAuthType =>
   value === 'none' || value === 'apiKey' || value === 'basic' || value === 'oauth';
 
-const INTEGRATION_SECRET_COLUMNS =
-  'id, profile_id, webhook_url, auth_type, api_key, basic_username, basic_password, oauth_token, created_at, updated_at';
-
-export async function fetchIntegrationSecret(profileId: string): Promise<IntegrationSecretRecord | null> {
-  const { data, error } = await supabase
-    .from('integration_secrets')
-    .select(INTEGRATION_SECRET_COLUMNS)
-    .eq('profile_id', profileId)
-    .maybeSingle();
-
-  if (error) {
-    throw error;
+const readRecord = (profileId: string): IntegrationSecretRecord | null => {
+  if (typeof window === 'undefined') {
+    return null;
   }
 
-  return (data as IntegrationSecretRecord | null) ?? null;
+  const raw = window.localStorage.getItem(storageKey(profileId));
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as IntegrationSecretRecord;
+    if (!parsed || typeof parsed !== 'object') {
+      return null;
+    }
+
+    return {
+      id: typeof parsed.id === 'string' ? parsed.id : generateId(),
+      profile_id: profileId,
+      webhook_url: typeof parsed.webhook_url === 'string' ? parsed.webhook_url : null,
+      auth_type: typeof parsed.auth_type === 'string' ? parsed.auth_type : 'none',
+      api_key: typeof parsed.api_key === 'string' ? parsed.api_key : null,
+      basic_username: typeof parsed.basic_username === 'string' ? parsed.basic_username : null,
+      basic_password: typeof parsed.basic_password === 'string' ? parsed.basic_password : null,
+      oauth_token: typeof parsed.oauth_token === 'string' ? parsed.oauth_token : null,
+      created_at: typeof parsed.created_at === 'string' ? parsed.created_at : null,
+      updated_at: typeof parsed.updated_at === 'string' ? parsed.updated_at : null
+    };
+  } catch (error) {
+    console.error('Integrations-Secrets konnten nicht gelesen werden.', error);
+    return null;
+  }
+};
+
+export async function fetchIntegrationSecret(profileId: string): Promise<IntegrationSecretRecord | null> {
+  return readRecord(profileId);
 }
 
 export const applyIntegrationSecretToSettings = (
@@ -77,7 +112,9 @@ export async function upsertIntegrationSecret(
   payload: UpsertIntegrationSecretPayload
 ): Promise<IntegrationSecretRecord> {
   const timestamp = new Date().toISOString();
-  const prepared = {
+  const existing = readRecord(payload.profileId);
+  const record: IntegrationSecretRecord = {
+    id: existing?.id ?? generateId(),
     profile_id: payload.profileId,
     webhook_url: payload.webhookUrl,
     auth_type: payload.authType,
@@ -85,18 +122,13 @@ export async function upsertIntegrationSecret(
     basic_username: payload.authType === 'basic' ? payload.basicAuthUsername ?? null : null,
     basic_password: payload.authType === 'basic' ? payload.basicAuthPassword ?? null : null,
     oauth_token: payload.authType === 'oauth' ? payload.oauthToken ?? null : null,
+    created_at: existing?.created_at ?? timestamp,
     updated_at: timestamp
   };
 
-  const { data, error } = await supabase
-    .from('integration_secrets')
-    .upsert(prepared, { onConflict: 'profile_id' })
-    .select(INTEGRATION_SECRET_COLUMNS)
-    .single();
-
-  if (error) {
-    throw error;
+  if (typeof window !== 'undefined') {
+    window.localStorage.setItem(storageKey(payload.profileId), JSON.stringify(record));
   }
 
-  return data as IntegrationSecretRecord;
+  return record;
 }

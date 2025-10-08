@@ -18,7 +18,6 @@ export type ChatMessage = {
 
 export type Chat = {
   id: string;
-  agentId: string;
   name: string;
   folder?: string;
   folderId?: string;

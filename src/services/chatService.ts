@@ -1,37 +1,89 @@
-import { supabase } from '../utils/supabase';
 import { Chat, ChatAttachment, ChatMessage } from '../data/sampleChats';
-import type { AgentProfile } from '../types/auth';
-import { sanitizeAgentProfile } from '../utils/agents';
 
-export interface AgentConversationRow {
+export interface FolderRecord {
   id: string;
   profile_id: string;
-  agent_id: string | null;
+  name: string;
+  created_at: string | null;
+  updated_at?: string | null;
+}
+
+export interface ChatRow {
+  id: string;
+  profile_id: string;
   title?: string | null;
-  messages?: ChatMessage[] | null;
+  name?: string | null;
+  folder_id?: string | null;
+  messages?: ChatMessage[];
   summary?: string | null;
   last_message_at?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
-  agent_name?: string | null;
-  agent_description?: string | null;
-  agent_avatar_url?: string | null;
-  agent_tools?: string[] | null;
-  agent_webhook_url?: string | null;
 }
 
-export interface AgentConversationUpdatePayload {
+export interface ChatUpdatePayload {
   title?: string;
+  folderId?: string | null;
   messages?: ChatMessage[];
   summary?: string | null;
   lastMessageAt?: string | null;
 }
 
-const CONVERSATION_COLUMNS =
-  'id, profile_id, agent_id, title, summary, messages, last_message_at, created_at, updated_at, agent_name, agent_description, agent_avatar_url, agent_tools, agent_webhook_url';
+const CHATS_PREFIX = 'aiti-agent-chats:';
+const FOLDERS_PREFIX = 'aiti-agent-folders:';
 
-const AGENT_METADATA_COLUMNS =
-  'id, profile_id, agent_id, agent_name, agent_description, agent_avatar_url, agent_tools, agent_webhook_url, title';
+const generateId = () => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+
+  const segments = Array.from({ length: 5 }, () => Math.random().toString(16).slice(2, 10));
+  return `${segments[0]}-${segments[1].slice(0, 4)}-${segments[2].slice(0, 4)}-${segments[3].slice(0, 4)}-${segments[4]}${Math.random()
+    .toString(16)
+    .slice(2, 10)}`.slice(0, 36);
+};
+
+const chatsKey = (profileId: string) => `${CHATS_PREFIX}${profileId}`;
+const foldersKey = (profileId: string) => `${FOLDERS_PREFIX}${profileId}`;
+
+const parseMessages = (value: unknown): ChatMessage[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const messages: ChatMessage[] = [];
+
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object') {
+      continue;
+    }
+
+    const candidate = entry as Partial<ChatMessage> & { attachments?: unknown };
+    if (
+      typeof candidate.id === 'string' &&
+      (candidate.author === 'agent' || candidate.author === 'user') &&
+      typeof candidate.content === 'string' &&
+      typeof candidate.timestamp === 'string'
+    ) {
+      const attachments = Array.isArray(candidate.attachments)
+        ? candidate.attachments.filter(
+            (attachment): attachment is ChatAttachment =>
+              Boolean(attachment) && typeof attachment === 'object' && typeof (attachment as any).id === 'string'
+          )
+        : undefined;
+
+      messages.push({
+        id: candidate.id,
+        author: candidate.author,
+        content: candidate.content,
+        timestamp: candidate.timestamp,
+        ...(attachments && attachments.length > 0 ? { attachments } : {})
+      });
+    }
+  }
+
+  return messages;
+};
 
 const toPreview = (value: string) => (value.length > 140 ? `${value.slice(0, 137)}…` : value);
 
@@ -57,256 +109,236 @@ const formatDisplayTime = (value: string | null | undefined) => {
   });
 };
 
-const parseMessages = (value: unknown): ChatMessage[] => {
-  if (!Array.isArray(value)) {
+const loadFolders = (profileId: string): FolderRecord[] => {
+  if (typeof window === 'undefined') {
     return [];
   }
 
-  return value
-    .map((entry) => {
-      if (!entry || typeof entry !== 'object') {
-        return null;
-      }
+  const raw = window.localStorage.getItem(foldersKey(profileId));
+  if (!raw) {
+    return [];
+  }
 
-      const candidate = entry as Partial<ChatMessage> & { attachments?: unknown };
-      if (
-        typeof candidate.id === 'string' &&
-        (candidate.author === 'agent' || candidate.author === 'user') &&
-        typeof candidate.content === 'string' &&
-        typeof candidate.timestamp === 'string'
-      ) {
-        let attachments: ChatAttachment[] | undefined;
-        if (Array.isArray(candidate.attachments)) {
-          attachments = candidate.attachments.filter(
-            (attachment): attachment is ChatAttachment =>
-              Boolean(attachment) &&
-              typeof attachment === 'object' &&
-              typeof (attachment as ChatAttachment).id === 'string'
-          );
-        }
+  try {
+    const parsed = JSON.parse(raw) as Array<Partial<FolderRecord>>;
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .map((folder) => {
+        const id = typeof folder.id === 'string' ? folder.id : generateId();
+        const name = typeof folder.name === 'string' && folder.name.trim().length > 0 ? folder.name.trim() : 'Ordner';
 
         return {
-          id: candidate.id,
-          author: candidate.author,
-          content: candidate.content,
-          timestamp: candidate.timestamp,
-          ...(attachments && attachments.length > 0 ? { attachments } : {})
-        } satisfies ChatMessage;
-      }
-
-      return null;
-    })
-    .filter((message): message is ChatMessage => Boolean(message));
+          id,
+          profile_id: profileId,
+          name,
+          created_at: typeof folder.created_at === 'string' ? folder.created_at : null,
+          updated_at: typeof folder.updated_at === 'string' ? folder.updated_at : null
+        };
+      })
+      .filter((folder) => folder.id)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  } catch (error) {
+    console.error('Ordner konnten nicht aus dem Speicher geladen werden.', error);
+    return [];
+  }
 };
 
-const normalizeAgentTools = (value: unknown): string[] => {
-  if (!Array.isArray(value)) {
+const saveFolders = (profileId: string, folders: FolderRecord[]) => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  window.localStorage.setItem(foldersKey(profileId), JSON.stringify(folders));
+};
+
+const loadChats = (profileId: string): ChatRow[] => {
+  if (typeof window === 'undefined') {
     return [];
   }
 
-  return value
-    .map((tool) => (typeof tool === 'string' ? tool.trim() : ''))
-    .filter((tool) => tool.length > 0);
+  const raw = window.localStorage.getItem(chatsKey(profileId));
+  if (!raw) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Array<ChatRow & Record<string, unknown>>;
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .map((row) => ({
+        id: typeof row.id === 'string' ? row.id : generateId(),
+        profile_id: profileId,
+        title: typeof row.title === 'string' ? row.title : typeof row.name === 'string' ? row.name : null,
+        name: typeof row.name === 'string' ? row.name : typeof row.title === 'string' ? row.title : null,
+        folder_id: typeof row.folder_id === 'string' ? row.folder_id : null,
+        messages: parseMessages(row.messages),
+        summary: typeof row.summary === 'string' ? row.summary : null,
+        last_message_at: typeof row.last_message_at === 'string' ? row.last_message_at : null,
+        created_at: typeof row.created_at === 'string' ? row.created_at : null,
+        updated_at: typeof row.updated_at === 'string' ? row.updated_at : null
+      }))
+      .sort((a, b) => {
+        const aTime = a.last_message_at ?? a.updated_at ?? a.created_at;
+        const bTime = b.last_message_at ?? b.updated_at ?? b.created_at;
+
+        if (!aTime && !bTime) {
+          return 0;
+        }
+
+        if (!aTime) {
+          return 1;
+        }
+
+        if (!bTime) {
+          return -1;
+        }
+
+        return new Date(bTime).getTime() - new Date(aTime).getTime();
+      });
+  } catch (error) {
+    console.error('Chats konnten nicht aus dem Speicher geladen werden.', error);
+    return [];
+  }
 };
 
-export const mapChatRowToChat = (row: AgentConversationRow): Chat => {
-  const title = (row.title ?? row.agent_name ?? 'Neuer Chat').trim();
+const saveChats = (profileId: string, chats: ChatRow[]) => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  window.localStorage.setItem(chatsKey(profileId), JSON.stringify(chats));
+};
+
+export const fetchFoldersForProfile = async (profileId: string): Promise<FolderRecord[]> => {
+  return loadFolders(profileId);
+};
+
+export const createFolderForProfile = async (
+  profileId: string,
+  name: string
+): Promise<FolderRecord> => {
+  const trimmedName = name.trim();
+  const folders = loadFolders(profileId);
+  const timestamp = new Date().toISOString();
+  const newFolder: FolderRecord = {
+    id: generateId(),
+    profile_id: profileId,
+    name: trimmedName.length > 0 ? trimmedName : 'Ordner',
+    created_at: timestamp,
+    updated_at: timestamp
+  };
+
+  const nextFolders = [...folders, newFolder].sort((a, b) => a.name.localeCompare(b.name));
+  saveFolders(profileId, nextFolders);
+  return newFolder;
+};
+
+export const deleteFolderById = async (profileId: string, folderId: string) => {
+  const folders = loadFolders(profileId);
+  const nextFolders = folders.filter((folder) => folder.id !== folderId);
+  saveFolders(profileId, nextFolders);
+};
+
+export const detachFolderFromChats = async (profileId: string, folderId: string) => {
+  const chats = loadChats(profileId);
+  const nextChats = chats.map((chat) =>
+    chat.folder_id === folderId
+      ? {
+          ...chat,
+          folder_id: null,
+          updated_at: new Date().toISOString()
+        }
+      : chat
+  );
+  saveChats(profileId, nextChats);
+};
+
+export const fetchChatsForProfile = async (profileId: string): Promise<ChatRow[]> => {
+  return loadChats(profileId);
+};
+
+export const mapChatRowToChat = (
+  row: ChatRow,
+  foldersById: Map<string, FolderRecord>
+): Chat => {
+  const title = (row.title ?? row.name ?? 'Neuer Chat').trim();
   const messages = parseMessages(row.messages);
   const lastMessage = messages.length > 0 ? messages[messages.length - 1] : undefined;
   const previewSource = row.summary ?? lastMessage?.content ?? '';
+  const folderId = row.folder_id ?? undefined;
+  const folderName = folderId ? foldersById.get(folderId)?.name : undefined;
   const lastTimestamp = row.last_message_at ?? row.updated_at ?? row.created_at ?? new Date().toISOString();
-  const agentId = typeof row.agent_id === 'string' ? row.agent_id : '';
 
   return {
     id: row.id,
-    agentId,
     name: title.length > 0 ? title : 'Neuer Chat',
+    folder: folderName,
+    folderId,
     messages,
     preview: toPreview(previewSource),
     lastUpdated: formatDisplayTime(lastTimestamp)
   };
 };
 
-export const mapConversationRowToAgentProfile = (row: AgentConversationRow): AgentProfile => ({
-  id: row.agent_id ?? row.id,
-  name: (row.agent_name ?? row.title ?? 'Neuer Agent').trim() || 'Neuer Agent',
-  description: (row.agent_description ?? '').trim(),
-  avatarUrl: row.agent_avatar_url ?? null,
-  tools: normalizeAgentTools(row.agent_tools),
-  webhookUrl: (row.agent_webhook_url ?? '').trim()
-});
-
-const sortConversationRows = (rows: AgentConversationRow[]) => {
-  return [...rows].sort((a, b) => {
-    const aTime = a.last_message_at ?? a.updated_at ?? a.created_at ?? '';
-    const bTime = b.last_message_at ?? b.updated_at ?? b.created_at ?? '';
-
-    if (!aTime && !bTime) {
-      return 0;
-    }
-
-    if (!aTime) {
-      return 1;
-    }
-
-    if (!bTime) {
-      return -1;
-    }
-
-    return new Date(bTime).getTime() - new Date(aTime).getTime();
-  });
-};
-
-export const fetchChatsForProfile = async (profileId: string): Promise<AgentConversationRow[]> => {
-  const { data, error } = await supabase
-    .from('agent_conversations')
-    .select(CONVERSATION_COLUMNS)
-    .eq('profile_id', profileId)
-    .order('last_message_at', { ascending: false, nullsFirst: false })
-    .order('updated_at', { ascending: false, nullsFirst: false });
-
-  if (error) {
-    throw error;
-  }
-
-  return sortConversationRows((data as AgentConversationRow[]) ?? []);
-};
-
-export const fetchAgentMetadataForProfile = async (profileId: string): Promise<AgentProfile[]> => {
-  const { data, error } = await supabase
-    .from('agent_conversations')
-    .select(AGENT_METADATA_COLUMNS)
-    .eq('profile_id', profileId);
-
-  if (error) {
-    throw error;
-  }
-
-  return ((data as AgentConversationRow[]) ?? []).map((row) => mapConversationRowToAgentProfile(row));
-};
-
-export const fetchAgentMetadataForProfiles = async (
-  profileIds: string[]
-): Promise<Map<string, AgentProfile[]>> => {
-  const map = new Map<string, AgentProfile[]>();
-  if (profileIds.length === 0) {
-    return map;
-  }
-
-  const { data, error } = await supabase
-    .from('agent_conversations')
-    .select(AGENT_METADATA_COLUMNS)
-    .in('profile_id', profileIds);
-
-  if (error) {
-    throw error;
-  }
-
-  for (const row of (data as AgentConversationRow[]) ?? []) {
-    const profileId = row.profile_id;
-    if (!profileId) {
-      continue;
-    }
-
-    const current = map.get(profileId) ?? [];
-    current.push(mapConversationRowToAgentProfile(row));
-    map.set(profileId, current);
-  }
-
-  return map;
-};
-
 export const createChatForProfile = async (
   profileId: string,
-  chat: Chat,
-  agent?: AgentProfile
+  chat: Chat
 ) => {
-  const sanitizedAgent = agent ? sanitizeAgentProfile(agent) : undefined;
-  const now = new Date().toISOString();
-
-  const payload = {
+  const chats = loadChats(profileId);
+  const timestamp = new Date().toISOString();
+  const prepared: ChatRow = {
     id: chat.id,
     profile_id: profileId,
-    agent_id: chat.agentId || sanitizedAgent?.id || chat.id,
     title: chat.name,
-    summary: chat.preview,
+    name: chat.name,
+    folder_id: chat.folderId ?? null,
     messages: chat.messages,
-    last_message_at: now,
-    agent_name: sanitizedAgent?.name ?? chat.name,
-    agent_description: sanitizedAgent?.description ?? '',
-    agent_avatar_url: sanitizedAgent?.avatarUrl ?? null,
-    agent_tools: sanitizedAgent?.tools ?? [],
-    agent_webhook_url: sanitizedAgent?.webhookUrl ?? null,
+    summary: chat.preview,
+    last_message_at: timestamp,
+    created_at: timestamp,
+    updated_at: timestamp
+  };
+
+  const nextChats = [prepared, ...chats.filter((existing) => existing.id !== chat.id)];
+  saveChats(profileId, nextChats);
+};
+
+export const updateChatRow = async (
+  profileId: string,
+  chatId: string,
+  updates: ChatUpdatePayload
+) => {
+  const chats = loadChats(profileId);
+  const index = chats.findIndex((chat) => chat.id === chatId);
+  if (index === -1) {
+    throw new Error('Chat wurde nicht gefunden.');
+  }
+
+  const now = new Date().toISOString();
+  const current = chats[index];
+  const next: ChatRow = {
+    ...current,
+    ...(typeof updates.title === 'string' ? { title: updates.title, name: updates.title } : {}),
+    ...(updates.folderId !== undefined ? { folder_id: updates.folderId ?? null } : {}),
+    ...(updates.messages ? { messages: updates.messages } : {}),
+    ...(typeof updates.summary === 'string' ? { summary: updates.summary } : {}),
+    ...(typeof updates.lastMessageAt === 'string' ? { last_message_at: updates.lastMessageAt } : {}),
     updated_at: now
   };
 
-  const { error } = await supabase
-    .from('agent_conversations')
-    .upsert(payload, { onConflict: 'profile_id,agent_id' });
-
-  if (error) {
-    throw error;
-  }
+  const nextChats = [...chats];
+  nextChats[index] = next;
+  saveChats(profileId, nextChats);
 };
 
-export const updateChatRow = async (id: string, payload: AgentConversationUpdatePayload) => {
-  const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
-
-  if (typeof payload.title === 'string') {
-    updates.title = payload.title;
-  }
-
-  if (payload.messages) {
-    updates.messages = payload.messages;
-  }
-
-  if (payload.summary !== undefined) {
-    updates.summary = payload.summary;
-  }
-
-  if (payload.lastMessageAt) {
-    updates.last_message_at = payload.lastMessageAt;
-  }
-
-  const { error } = await supabase.from('agent_conversations').update(updates).eq('id', id);
-
-  if (error) {
-    throw error;
-  }
-};
-
-export const saveAgentMetadataForProfile = async (profileId: string, agent: AgentProfile) => {
-  const sanitized = sanitizeAgentProfile(agent);
-  const payload = {
-    id: sanitized.id,
-    profile_id: profileId,
-    agent_id: sanitized.id,
-    agent_name: sanitized.name,
-    agent_description: sanitized.description,
-    agent_avatar_url: sanitized.avatarUrl,
-    agent_tools: sanitized.tools,
-    agent_webhook_url: sanitized.webhookUrl,
-    title: sanitized.name,
-    updated_at: new Date().toISOString()
-  };
-
-  const { error } = await supabase
-    .from('agent_conversations')
-    .upsert(payload, { onConflict: 'profile_id,agent_id' });
-
-  if (error) {
-    throw error;
-  }
-};
-
-export const deleteAgentForProfile = async (profileId: string, agentId: string) => {
-  const { error } = await supabase
-    .from('agent_conversations')
-    .delete()
-    .eq('profile_id', profileId)
-    .eq('agent_id', agentId);
-
-  if (error) {
-    throw error;
-  }
+export const deleteChatById = async (profileId: string, chatId: string) => {
+  const chats = loadChats(profileId);
+  const nextChats = chats.filter((chat) => chat.id !== chatId);
+  saveChats(profileId, nextChats);
 };
