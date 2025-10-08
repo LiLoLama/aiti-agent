@@ -1,4 +1,6 @@
+import supabase from '../utils/supabase';
 import { Chat, ChatMessage } from '../data/sampleChats';
+import { AgentProfile } from '../types/auth';
 
 export interface AgentConversationRecord {
   id: string;
@@ -8,6 +10,7 @@ export interface AgentConversationRecord {
   agent_description: string | null;
   agent_avatar_url: string | null;
   agent_webhook_url: string | null;
+  agent_tools: string[];
   messages: ChatMessage[];
   summary: string | null;
   last_message_at: string | null;
@@ -23,22 +26,39 @@ export interface AgentConversationUpdatePayload {
   agentDescription?: string | null;
   agentAvatarUrl?: string | null;
   agentWebhookUrl?: string | null;
+  agentTools?: string[] | null;
 }
 
-const CONVERSATION_PREFIX = 'aiti-agent-conversations:';
-
-const generateId = () => {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-
-  const segments = Array.from({ length: 5 }, () => Math.random().toString(16).slice(2, 10));
-  return `${segments[0]}-${segments[1].slice(0, 4)}-${segments[2].slice(0, 4)}-${segments[3].slice(0, 4)}-${segments[4]}${Math.random()
-    .toString(16)
-    .slice(2, 10)}`.slice(0, 36);
+type AgentConversationRow = {
+  id: string;
+  profile_id: string;
+  agent_id: string;
+  agent_name: string | null;
+  agent_description: string | null;
+  agent_avatar_url: string | null;
+  agent_webhook_url: string | null;
+  agent_tools: unknown;
+  messages: unknown;
+  summary: string | null;
+  last_message_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
 };
 
-const storageKey = (profileId: string) => `${CONVERSATION_PREFIX}${profileId}`;
+const isNonEmptyString = (value: unknown): value is string => typeof value === 'string' && value.length > 0;
+
+const sanitizeTools = (tools: unknown): string[] => {
+  if (!Array.isArray(tools)) {
+    return [];
+  }
+
+  const normalized = tools
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+
+  return Array.from(new Set(normalized));
+};
 
 const sanitizeMessages = (messages: unknown): ChatMessage[] => {
   if (!Array.isArray(messages)) {
@@ -55,24 +75,24 @@ const sanitizeMessages = (messages: unknown): ChatMessage[] => {
     const candidate = entry as Partial<ChatMessage> & { attachments?: unknown };
 
     if (
-      typeof candidate.id === 'string' &&
+      isNonEmptyString(candidate.id) &&
       (candidate.author === 'agent' || candidate.author === 'user') &&
       typeof candidate.content === 'string' &&
       typeof candidate.timestamp === 'string'
     ) {
+      const attachments = Array.isArray(candidate.attachments)
+        ? candidate.attachments.filter(
+            (attachment): attachment is NonNullable<ChatMessage['attachments']>[number] =>
+              Boolean(attachment) && typeof attachment === 'object' && isNonEmptyString((attachment as any).id)
+          )
+        : undefined;
+
       sanitized.push({
         id: candidate.id,
         author: candidate.author,
         content: candidate.content,
         timestamp: candidate.timestamp,
-        ...(Array.isArray(candidate.attachments) && candidate.attachments.length > 0
-          ? {
-              attachments: candidate.attachments.filter(
-                (attachment): attachment is NonNullable<ChatMessage['attachments']>[number] =>
-                  Boolean(attachment) && typeof attachment === 'object' && typeof (attachment as any).id === 'string'
-              )
-            }
-          : {})
+        ...(attachments && attachments.length > 0 ? { attachments } : {})
       });
     }
   }
@@ -80,120 +100,28 @@ const sanitizeMessages = (messages: unknown): ChatMessage[] => {
   return sanitized;
 };
 
-const sanitizeRecord = (profileId: string, record: Partial<AgentConversationRecord>): AgentConversationRecord => {
-  const baseId = typeof record.id === 'string' && record.id.length > 0 ? record.id : generateId();
-  const agentId = typeof record.agent_id === 'string' && record.agent_id.length > 0 ? record.agent_id : baseId;
+const sanitizeRecord = (record: AgentConversationRow): AgentConversationRecord => ({
+  id: record.id,
+  profile_id: record.profile_id,
+  agent_id: record.agent_id,
+  agent_name: record.agent_name,
+  agent_description: record.agent_description,
+  agent_avatar_url: record.agent_avatar_url,
+  agent_webhook_url: record.agent_webhook_url,
+  agent_tools: sanitizeTools(record.agent_tools),
+  messages: sanitizeMessages(record.messages),
+  summary: record.summary,
+  last_message_at: record.last_message_at,
+  created_at: record.created_at,
+  updated_at: record.updated_at
+});
 
-  return {
-    id: baseId,
-    profile_id: profileId,
-    agent_id: agentId,
-    agent_name: typeof record.agent_name === 'string' ? record.agent_name : null,
-    agent_description: typeof record.agent_description === 'string' ? record.agent_description : null,
-    agent_avatar_url: typeof record.agent_avatar_url === 'string' ? record.agent_avatar_url : null,
-    agent_webhook_url: typeof record.agent_webhook_url === 'string' ? record.agent_webhook_url : null,
-    messages: sanitizeMessages(record.messages),
-    summary: typeof record.summary === 'string' ? record.summary : null,
-    last_message_at: typeof record.last_message_at === 'string' ? record.last_message_at : null,
-    created_at: typeof record.created_at === 'string' ? record.created_at : null,
-    updated_at: typeof record.updated_at === 'string' ? record.updated_at : null
-  };
-};
-
-const readRecords = (profileId: string): AgentConversationRecord[] => {
-  if (typeof window === 'undefined') {
-    return [];
+const mapRowToRecord = (row: AgentConversationRow | null | undefined): AgentConversationRecord => {
+  if (!row) {
+    throw new Error('Konversation konnte nicht geladen werden.');
   }
 
-  const raw = window.localStorage.getItem(storageKey(profileId));
-  if (!raw) {
-    return [];
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as Array<Partial<AgentConversationRecord>>;
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-
-    return parsed.map((record) => sanitizeRecord(profileId, record));
-  } catch (error) {
-    console.error('Konversationen konnten nicht gelesen werden.', error);
-    return [];
-  }
-};
-
-const writeRecords = (profileId: string, records: AgentConversationRecord[]) => {
-  if (typeof window === 'undefined') {
-    return;
-  }
-
-  window.localStorage.setItem(storageKey(profileId), JSON.stringify(records));
-};
-
-export const fetchAgentConversations = async (
-  profileId: string
-): Promise<AgentConversationRecord[]> => {
-  return readRecords(profileId);
-};
-
-export const upsertAgentConversation = async (
-  profileId: string,
-  agentId: string,
-  updates: AgentConversationUpdatePayload
-): Promise<AgentConversationRecord> => {
-  const records = readRecords(profileId);
-  const index = records.findIndex((record) => record.agent_id === agentId);
-  const timestamp = new Date().toISOString();
-
-  if (index === -1) {
-    const record: AgentConversationRecord = {
-      id: generateId(),
-      profile_id: profileId,
-      agent_id: agentId,
-      agent_name: updates.agentName ?? null,
-      agent_description: updates.agentDescription ?? null,
-      agent_avatar_url: updates.agentAvatarUrl ?? null,
-      agent_webhook_url: updates.agentWebhookUrl ?? null,
-      messages: updates.messages ?? [],
-      summary: updates.summary ?? null,
-      last_message_at: updates.lastMessageAt ?? null,
-      created_at: timestamp,
-      updated_at: timestamp
-    };
-
-    const nextRecords = [...records, record];
-    writeRecords(profileId, nextRecords);
-    return record;
-  }
-
-  const current = records[index];
-  const nextRecord: AgentConversationRecord = {
-    ...current,
-    messages: updates.messages ?? current.messages,
-    summary: updates.summary ?? current.summary,
-    last_message_at: updates.lastMessageAt ?? current.last_message_at,
-    agent_name: updates.agentName ?? current.agent_name,
-    agent_description: updates.agentDescription ?? current.agent_description,
-    agent_avatar_url: updates.agentAvatarUrl ?? current.agent_avatar_url,
-    agent_webhook_url: updates.agentWebhookUrl ?? current.agent_webhook_url,
-    updated_at: timestamp
-  };
-
-  const nextRecords = [...records];
-  nextRecords[index] = nextRecord;
-  writeRecords(profileId, nextRecords);
-
-  return nextRecord;
-};
-
-export const deleteAgentConversation = async (
-  profileId: string,
-  agentId: string
-): Promise<void> => {
-  const records = readRecords(profileId);
-  const nextRecords = records.filter((record) => record.agent_id !== agentId);
-  writeRecords(profileId, nextRecords);
+  return sanitizeRecord(row);
 };
 
 const formatDisplayTime = (value: string | null | undefined) => {
@@ -220,6 +148,108 @@ const formatDisplayTime = (value: string | null | undefined) => {
 
 const toPreview = (value: string) => (value.length > 140 ? `${value.slice(0, 137)}…` : value);
 
+export const fetchAgentConversations = async (
+  profileId: string
+): Promise<AgentConversationRecord[]> => {
+  const { data, error } = await supabase
+    .from('agent_conversations')
+    .select(
+      'id, profile_id, agent_id, agent_name, agent_description, agent_avatar_url, agent_webhook_url, agent_tools, messages, summary, last_message_at, created_at, updated_at'
+    )
+    .eq('profile_id', profileId)
+    .order('updated_at', { ascending: false, nullsFirst: false });
+
+  if (error) {
+    throw new Error(error.message ?? 'Konversationen konnten nicht geladen werden.');
+  }
+
+  return (data ?? []).map((row) => sanitizeRecord(row as AgentConversationRow));
+};
+
+export const upsertAgentConversation = async (
+  profileId: string,
+  agentId: string,
+  updates: AgentConversationUpdatePayload
+): Promise<AgentConversationRecord> => {
+  const payload: Record<string, unknown> = {
+    profile_id: profileId,
+    agent_id: agentId,
+    updated_at: new Date().toISOString()
+  };
+
+  if (updates.messages !== undefined) {
+    payload.messages = updates.messages;
+  }
+  if (updates.summary !== undefined) {
+    payload.summary = updates.summary;
+  }
+  if (updates.lastMessageAt !== undefined) {
+    payload.last_message_at = updates.lastMessageAt;
+  }
+  if (updates.agentName !== undefined) {
+    payload.agent_name = updates.agentName;
+  }
+  if (updates.agentDescription !== undefined) {
+    payload.agent_description = updates.agentDescription;
+  }
+  if (updates.agentAvatarUrl !== undefined) {
+    payload.agent_avatar_url = updates.agentAvatarUrl;
+  }
+  if (updates.agentWebhookUrl !== undefined) {
+    payload.agent_webhook_url = updates.agentWebhookUrl;
+  }
+  if (updates.agentTools !== undefined) {
+    payload.agent_tools = sanitizeTools(updates.agentTools);
+  }
+
+  const { data, error } = await supabase
+    .from('agent_conversations')
+    .upsert(payload, { onConflict: 'profile_id,agent_id' })
+    .select(
+      'id, profile_id, agent_id, agent_name, agent_description, agent_avatar_url, agent_webhook_url, agent_tools, messages, summary, last_message_at, created_at, updated_at'
+    );
+
+  if (error) {
+    throw new Error(error.message ?? 'Konversation konnte nicht gespeichert werden.');
+  }
+
+  const row = Array.isArray(data) ? (data[0] as AgentConversationRow | undefined) : (data as AgentConversationRow | null);
+
+  if (row) {
+    return mapRowToRecord(row);
+  }
+
+  const { data: fetched, error: fetchError } = await supabase
+    .from('agent_conversations')
+    .select(
+      'id, profile_id, agent_id, agent_name, agent_description, agent_avatar_url, agent_webhook_url, agent_tools, messages, summary, last_message_at, created_at, updated_at'
+    )
+    .eq('profile_id', profileId)
+    .eq('agent_id', agentId)
+    .maybeSingle();
+
+  if (fetchError) {
+    throw new Error(fetchError.message ?? 'Konversation konnte nicht geladen werden.');
+  }
+
+  return mapRowToRecord(fetched as AgentConversationRow | null);
+};
+
+export const deleteAgentConversation = async (
+  profileId: string,
+  agentId: string
+): Promise<void> => {
+  const { error } = await supabase
+    .from('agent_conversations')
+    .delete()
+    .eq('profile_id', profileId)
+    .eq('agent_id', agentId);
+
+  if (error) {
+    throw new Error(error.message ?? 'Konversation konnte nicht gelöscht werden.');
+  }
+};
+
 export const mapConversationToChat = (
   record: AgentConversationRecord,
   fallbackName: string,
@@ -237,3 +267,15 @@ export const mapConversationToChat = (
     messages
   };
 };
+
+export const mapConversationToAgentProfile = (
+  record: AgentConversationRecord,
+  fallbackName: string
+): AgentProfile => ({
+  id: record.agent_id,
+  name: record.agent_name ?? fallbackName,
+  description: record.agent_description ?? '',
+  avatarUrl: record.agent_avatar_url ?? null,
+  tools: record.agent_tools ?? [],
+  webhookUrl: record.agent_webhook_url ?? ''
+});
