@@ -14,7 +14,6 @@ Falls noch nicht vorhanden, lege eine Tabelle `profiles` mit folgenden Spalten a
 | `name`          | `text`     | Optional.                                  |
 | `avatar_url`    | `text`     | Optional.                                  |
 | `role`          | `text`     | Optional (`user` oder `admin`).            |
-| `agents`        | `jsonb`    | Speicherung der Agent-Konfigurationen.     |
 | `bio`           | `text`     | Optional.                                  |
 | `email_verified`| `text`     | Optional (`'true'` / `'false'`).           |
 | `is_active`     | `boolean`  | Optional, Standard `true`.                 |
@@ -87,12 +86,12 @@ create policy "Users can delete own agent chats"
 Stelle sicher, dass dein Frontend Zugriff auf die folgenden Variablen hat:
 
 - `VITE_SUPABASE_URL`
-- `VITE_SUPABASE_ANON_KEY`
+- `VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY`
 
 Beide Werte kannst du im Supabase-Dashboard unter **Project Settings → API** abrufen.
 
 ## 4. Zusammenfassung
 
-- Jeder Agent besitzt genau einen Chat in der Tabelle `agent_conversations` (Identifikation über `agent_id`).
+- Jeder Agent besitzt genau einen Chat in der Tabelle `agent_conversations` (Identifikation über `agent_id`). Die Agent-Konfiguration (Name, Beschreibung, Tools, Webhook, Avatar) wird ausschließlich dort gespeichert.
 - Die Anwendung liest und schreibt ausschließlich Zeilen, deren `profile_id` der angemeldeten Nutzer-ID entspricht.
 - Policies auf `profiles` und `agent_conversations` müssen INSERT, SELECT, UPDATE (und optional DELETE) für die jeweilige Nutzer-ID erlauben.
