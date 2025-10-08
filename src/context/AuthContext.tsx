@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode
 } from 'react';
@@ -259,12 +260,20 @@ const ensureProfileForUser = async (user: User, preferredName?: string) => {
 };
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const [currentUser, setCurrentUserState] = useState<AuthUser | null>(null);
   const [users, setUsers] = useState<AuthUser[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
+  const currentUserRef = useRef<AuthUser | null>(null);
+  const currentUserLoaderRef = useRef<Promise<void> | null>(null);
+
+  const setCurrentUser = useCallback((nextUser: AuthUser | null) => {
+    currentUserRef.current = nextUser;
+    setCurrentUserState(nextUser);
+  }, []);
+
   const refreshUsersList = useCallback(
-    async (currentCandidate: AuthUser | null = currentUser) => {
+    async (currentCandidate: AuthUser | null = currentUserRef.current) => {
       try {
         const { data: profileRows, error: profilesError } = await supabase
           .from('profiles')
@@ -324,73 +333,86 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return fallback;
       }
     },
-    [currentUser]
+    []
   );
 
   const loadCurrentUser = useCallback(async () => {
-    setIsLoading(true);
+    if (currentUserLoaderRef.current) {
+      return currentUserLoaderRef.current;
+    }
 
-    try {
-      const {
-        data: { session }
-      } = await supabase.auth.getSession();
+    const loadPromise = (async () => {
+      setIsLoading(true);
 
-      const sessionUser = session?.user ?? null;
+      try {
+        const {
+          data: { session }
+        } = await supabase.auth.getSession();
 
-      if (!sessionUser) {
+        const sessionUser = session?.user ?? null;
+
+        if (!sessionUser) {
+          setCurrentUser(null);
+          setUsers([]);
+          return;
+        }
+
+        await ensureProfileForUser(sessionUser).catch((error) => {
+          console.warn('Profil konnte nicht automatisch erstellt werden.', error);
+        });
+
+        const { data: profileRow, error: profileError } = await supabase
+          .from('profiles')
+          .select('id, email, display_name, avatar_url, role, bio, email_verified, is_active, name')
+          .eq('id', sessionUser.id)
+          .maybeSingle();
+
+        if (profileError && !isRowLevelSecurityError(profileError)) {
+          throw new Error(profileError.message);
+        }
+
+        let agents: AgentProfile[] = [];
+        try {
+          const records = await fetchAgentConversations(sessionUser.id);
+          agents = records.map((record) => mapConversationToAgentProfile(record, 'AITI Agent'));
+        } catch (error) {
+          console.error('Agenten konnten nicht geladen werden.', error);
+        }
+
+        const mappedCurrent = profileRow
+          ? mapProfileRowToAuthUser(profileRow as ProfileRow, agents, {
+              name:
+                typeof sessionUser.user_metadata?.name === 'string'
+                  ? sessionUser.user_metadata.name
+                  : sessionUser.email,
+              email: sessionUser.email,
+              avatarUrl:
+                typeof sessionUser.user_metadata?.avatar_url === 'string'
+                  ? sessionUser.user_metadata.avatar_url
+                  : null,
+              emailVerified: Boolean(sessionUser.email_confirmed_at)
+            })
+          : createAuthUserFromSupabaseUser(sessionUser, agents);
+
+        setCurrentUser(mappedCurrent);
+        await refreshUsersList(mappedCurrent);
+      } catch (error) {
+        console.error('Authentifizierungsstatus konnte nicht geladen werden.', error);
         setCurrentUser(null);
         setUsers([]);
+      } finally {
         setIsLoading(false);
-        return;
       }
+    })();
 
-      await ensureProfileForUser(sessionUser).catch((error) => {
-        console.warn('Profil konnte nicht automatisch erstellt werden.', error);
-      });
+    currentUserLoaderRef.current = loadPromise;
 
-      const { data: profileRow, error: profileError } = await supabase
-        .from('profiles')
-        .select('id, email, display_name, avatar_url, role, bio, email_verified, is_active, name')
-        .eq('id', sessionUser.id)
-        .maybeSingle();
-
-      if (profileError && !isRowLevelSecurityError(profileError)) {
-        throw new Error(profileError.message);
-      }
-
-      let agents: AgentProfile[] = [];
-      try {
-        const records = await fetchAgentConversations(sessionUser.id);
-        agents = records.map((record) => mapConversationToAgentProfile(record, 'AITI Agent'));
-      } catch (error) {
-        console.error('Agenten konnten nicht geladen werden.', error);
-      }
-
-      const mappedCurrent = profileRow
-        ? mapProfileRowToAuthUser(profileRow as ProfileRow, agents, {
-            name:
-              typeof sessionUser.user_metadata?.name === 'string'
-                ? sessionUser.user_metadata.name
-                : sessionUser.email,
-            email: sessionUser.email,
-            avatarUrl:
-              typeof sessionUser.user_metadata?.avatar_url === 'string'
-                ? sessionUser.user_metadata.avatar_url
-                : null,
-            emailVerified: Boolean(sessionUser.email_confirmed_at)
-          })
-        : createAuthUserFromSupabaseUser(sessionUser, agents);
-
-      setCurrentUser(mappedCurrent);
-      await refreshUsersList(mappedCurrent);
-    } catch (error) {
-      console.error('Authentifizierungsstatus konnte nicht geladen werden.', error);
-      setCurrentUser(null);
-      setUsers([]);
+    try {
+      await loadPromise;
     } finally {
-      setIsLoading(false);
+      currentUserLoaderRef.current = null;
     }
-  }, [refreshUsersList]);
+  }, [refreshUsersList, setCurrentUser]);
 
   useEffect(() => {
     let isMounted = true;
