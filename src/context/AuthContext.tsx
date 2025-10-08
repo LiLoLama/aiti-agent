@@ -4,9 +4,11 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode
 } from 'react';
+import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
 import {
   AgentDraft,
   AgentProfile,
@@ -17,7 +19,14 @@ import {
   RegistrationPayload,
   UserRole
 } from '../types/auth';
+import { supabase } from '../utils/supabase';
 import { createAgentId, sanitizeAgentProfile } from '../utils/agents';
+import {
+  deleteAgentForProfile,
+  fetchAgentMetadataForProfile,
+  fetchAgentMetadataForProfiles,
+  saveAgentMetadataForProfile
+} from '../services/chatService';
 
 interface AuthContextValue {
   currentUser: AuthUser | null;
@@ -35,345 +44,474 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
-interface StoredAuthUser extends AuthUser {
-  password: string;
-}
-
-interface PersistedAuthState {
-  users: StoredAuthUser[];
-  currentUserId: string | null;
-}
-
-const STORAGE_KEY = 'aiti-auth-state-v1';
-
-const DEFAULT_STATE: PersistedAuthState = {
-  users: [],
-  currentUserId: null
+type ProfileRow = {
+  id: string;
+  email: string | null;
+  display_name: string | null;
+  name: string | null;
+  avatar_url: string | null;
+  role: UserRole | null;
+  bio: string | null;
+  email_verified: string | null;
+  is_active: boolean | null;
+  created_at: string | null;
+  updated_at: string | null;
 };
 
-const toAuthUser = (user: StoredAuthUser | null | undefined): AuthUser | null => {
-  if (!user) {
-    return null;
+const PROFILE_COLUMNS =
+  'id, email, display_name, name, avatar_url, role, bio, email_verified, is_active, created_at, updated_at';
+
+const resolveDisplayName = (row: ProfileRow, fallbackEmail: string | null, override?: string) => {
+  if (override && override.trim().length > 0) {
+    return override.trim();
   }
 
-  const { password: _password, ...rest } = user;
-  return rest;
+  const display = row.display_name ?? row.name;
+  if (display && display.trim().length > 0) {
+    return display.trim();
+  }
+
+  if (fallbackEmail) {
+    return fallbackEmail.split('@')[0] ?? fallbackEmail;
+  }
+
+  return 'Neuer Nutzer';
 };
 
-const readPersistedState = (): PersistedAuthState => {
-  if (typeof window === 'undefined') {
-    return DEFAULT_STATE;
-  }
+const mapRowToAuthUser = (row: ProfileRow, agents: AgentProfile[], overrideName?: string): AuthUser => ({
+  id: row.id,
+  name: resolveDisplayName(row, row.email, overrideName),
+  email: row.email ?? '',
+  role: row.role ?? 'user',
+  isActive: row.is_active ?? true,
+  avatarUrl: row.avatar_url ?? null,
+  emailVerified: (row.email_verified ?? '').toLowerCase() === 'true',
+  agents,
+  bio: row.bio ?? undefined,
+  hasRemoteProfile: true
+});
 
-  const raw = window.localStorage.getItem(STORAGE_KEY);
-  if (!raw) {
-    return DEFAULT_STATE;
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as PersistedAuthState;
-    if (!parsed || typeof parsed !== 'object') {
-      return DEFAULT_STATE;
-    }
-
-    return {
-      users: Array.isArray(parsed.users) ? parsed.users : [],
-      currentUserId: typeof parsed.currentUserId === 'string' ? parsed.currentUserId : null
-    };
-  } catch (error) {
-    console.warn('Gespeicherter Auth-State konnte nicht gelesen werden.', error);
-    return DEFAULT_STATE;
-  }
-};
-
-const writePersistedState = (state: PersistedAuthState) => {
-  if (typeof window === 'undefined') {
-    return;
-  }
-
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch (error) {
-    console.warn('Auth-State konnte nicht gespeichert werden.', error);
-  }
-};
-
-const prepareStoredUser = (
-  payload: RegistrationPayload & { role?: UserRole; password: string }
-): StoredAuthUser => {
-  const id = createAgentId();
-  const displayName = payload.name?.trim() || payload.email.trim();
-  const normalizedEmail = payload.email.trim().toLowerCase();
+const createProfileInsertPayload = (
+  session: Session,
+  options?: { displayName?: string; email?: string }
+) => {
+  const email = options?.email ?? session.user.email ?? '';
+  const name =
+    options?.displayName?.trim() && options.displayName.trim().length > 0
+      ? options.displayName.trim()
+      : session.user.user_metadata?.name?.trim() ?? email.split('@')[0] ?? 'Neuer Nutzer';
 
   return {
-    id,
-    name: displayName,
-    email: normalizedEmail,
-    role: payload.role ?? 'user',
-    isActive: true,
-    avatarUrl: null,
-    emailVerified: false,
-    agents: [],
+    id: session.user.id,
+    email,
+    display_name: name,
+    name,
+    avatar_url: session.user.user_metadata?.avatar_url ?? null,
+    role: 'user' as UserRole,
     bio: '',
-    hasRemoteProfile: true,
-    password: payload.password
+    email_verified: session.user.email_confirmed_at ? 'true' : 'false',
+    is_active: true
   };
 };
 
+const ensureProfileForSession = async (
+  session: Session,
+  options?: { displayName?: string; email?: string }
+): Promise<ProfileRow> => {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select(PROFILE_COLUMNS)
+    .eq('id', session.user.id)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  if (data) {
+    return data as ProfileRow;
+  }
+
+  const insertPayload = createProfileInsertPayload(session, options);
+
+  const { data: inserted, error: insertError } = await supabase
+    .from('profiles')
+    .insert(insertPayload)
+    .select(PROFILE_COLUMNS)
+    .single();
+
+  if (insertError) {
+    throw insertError;
+  }
+
+  return inserted as ProfileRow;
+};
+
+const fetchAllProfilesWithAgents = async (): Promise<AuthUser[]> => {
+  const { data, error } = await supabase.from('profiles').select(PROFILE_COLUMNS);
+
+  if (error) {
+    throw error;
+  }
+
+  const rows = (data as ProfileRow[]) ?? [];
+  const agentMap = await fetchAgentMetadataForProfiles(rows.map((row) => row.id));
+
+  return rows.map((row) => mapRowToAuthUser(row, agentMap.get(row.id) ?? []));
+};
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<PersistedAuthState>(DEFAULT_STATE);
-  const [isInitialized, setIsInitialized] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const [users, setUsers] = useState<AuthUser[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const lastSessionAccessTokenRef = useRef<string | null>(null);
 
-  useEffect(() => {
-    if (isInitialized) {
-      return;
-    }
+  const handleSession = useCallback(
+    async (session: Session | null, options?: { profileRow?: ProfileRow }) => {
+      if (!session) {
+        lastSessionAccessTokenRef.current = null;
+        setCurrentUser(null);
+        setUsers([]);
+        setIsLoading(false);
+        return;
+      }
 
-    const nextState = readPersistedState();
-    setState(nextState);
-    setIsInitialized(true);
-    setIsLoading(false);
-  }, [isInitialized]);
+      if (lastSessionAccessTokenRef.current === session.access_token && currentUser) {
+        setIsLoading(false);
+        return;
+      }
 
-  useEffect(() => {
-    if (!isInitialized) {
-      return;
-    }
+      setIsLoading(true);
 
-    writePersistedState(state);
-  }, [state, isInitialized]);
+      try {
+        const profileRow =
+          options?.profileRow ?? (await ensureProfileForSession(session, { email: session.user.email ?? undefined }));
 
-  const currentStoredUser = useMemo(
-    () => state.users.find((user) => user.id === state.currentUserId) ?? null,
-    [state.users, state.currentUserId]
+        if (profileRow.is_active === false) {
+          await supabase.auth.signOut();
+          throw new Error('Dieser Nutzer ist deaktiviert.');
+        }
+
+        const agents = await fetchAgentMetadataForProfile(profileRow.id);
+        const authUser = mapRowToAuthUser(profileRow, agents);
+        setCurrentUser(authUser);
+        lastSessionAccessTokenRef.current = session.access_token;
+
+        if (authUser.role === 'admin') {
+          const allUsers = await fetchAllProfilesWithAgents();
+          setUsers(allUsers);
+        } else {
+          setUsers([authUser]);
+        }
+      } catch (error) {
+        console.error('Session konnte nicht geladen werden.', error);
+        setCurrentUser(null);
+        setUsers([]);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [currentUser]
   );
 
-  const currentUser = useMemo(() => toAuthUser(currentStoredUser), [currentStoredUser]);
+  useEffect(() => {
+    let isMounted = true;
 
-  const publicUsers = useMemo(
-    () => state.users.map((user) => toAuthUser(user)).filter((user): user is AuthUser => Boolean(user)),
-    [state.users]
-  );
+    const loadInitialSession = async () => {
+      try {
+        const { data, error } = await supabase.auth.getSession();
+        if (error) {
+          throw error;
+        }
+
+        if (!isMounted) {
+          return;
+        }
+
+        await handleSession(data.session ?? null);
+      } catch (error) {
+        console.error('Initiale Session konnte nicht geladen werden.', error);
+        if (isMounted) {
+          setCurrentUser(null);
+          setUsers([]);
+          setIsLoading(false);
+        }
+      }
+    };
+
+    void loadInitialSession();
+
+    const { data: listener } = supabase.auth.onAuthStateChange(
+      (_event: AuthChangeEvent, session) => {
+        void handleSession(session ?? null);
+      }
+    );
+
+    return () => {
+      isMounted = false;
+      listener.subscription.unsubscribe();
+    };
+  }, [handleSession]);
 
   const login = useCallback(
     async ({ email, password }: AuthCredentials) => {
-      const normalizedEmail = email.trim().toLowerCase();
-      const storedUser = state.users.find((user) => user.email === normalizedEmail);
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
-      if (!storedUser) {
-        throw new Error('Nutzer wurde nicht gefunden.');
+      if (error) {
+        throw new Error(error.message);
       }
 
-      if (!storedUser.isActive) {
+      if (!data.session) {
+        throw new Error('Anmeldung fehlgeschlagen.');
+      }
+
+      const profileRow = await ensureProfileForSession(data.session);
+
+      if (profileRow.is_active === false) {
+        await supabase.auth.signOut();
         throw new Error('Dieser Nutzer ist deaktiviert.');
       }
 
-      if (storedUser.password !== password) {
-        throw new Error('Ungültige Zugangsdaten.');
-      }
-
-      setState((previous) => ({
-        ...previous,
-        currentUserId: storedUser.id
-      }));
+      await handleSession(data.session, { profileRow });
     },
-    [state.users]
+    [handleSession]
   );
 
   const register = useCallback(
     async ({ name, email, password }: RegistrationPayload) => {
-      const normalizedEmail = email.trim().toLowerCase();
-      const existingUser = state.users.find((user) => user.email === normalizedEmail);
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: { name }
+        }
+      });
 
-      if (existingUser) {
-        setState((previous) => ({
-          ...previous,
-          currentUserId: existingUser.id
-        }));
-
-        return { sessionExists: true };
+      if (error) {
+        throw new Error(error.message);
       }
 
-      const newUser = prepareStoredUser({ name, email: normalizedEmail, password });
+      const session = data.session ?? null;
 
-      setState((previous) => ({
-        users: [...previous.users, newUser],
-        currentUserId: newUser.id
-      }));
+      if (session) {
+        const profileRow = await ensureProfileForSession(session, { displayName: name, email });
+        await handleSession(session, { profileRow });
+      }
 
-      return { sessionExists: false };
+      return { sessionExists: Boolean(session) };
     },
-    [state.users]
+    [handleSession]
   );
 
   const logout = useCallback(async () => {
-    setState((previous) => ({
-      ...previous,
-      currentUserId: null
-    }));
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    setCurrentUser(null);
+    setUsers([]);
+    lastSessionAccessTokenRef.current = null;
   }, []);
 
   const updateProfile = useCallback(
     async (updates: ProfileUpdatePayload) => {
-      setState((previous) => {
-        if (!previous.currentUserId) {
-          return previous;
-        }
+      if (!currentUser) {
+        throw new Error('Kein aktiver Nutzer.');
+      }
 
-        const users = previous.users.map((user) => {
-          if (user.id !== previous.currentUserId) {
+      const updatePayload: Record<string, unknown> = { updated_at: new Date().toISOString() };
+
+      if (typeof updates.name === 'string') {
+        updatePayload.display_name = updates.name;
+        updatePayload.name = updates.name;
+      }
+
+      if (updates.avatarUrl !== undefined) {
+        updatePayload.avatar_url = updates.avatarUrl;
+      }
+
+      if (updates.bio !== undefined) {
+        updatePayload.bio = updates.bio ?? null;
+      }
+
+      if (updates.emailVerified !== undefined) {
+        updatePayload.email_verified = updates.emailVerified ? 'true' : 'false';
+      }
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .update(updatePayload)
+        .eq('id', currentUser.id)
+        .select(PROFILE_COLUMNS)
+        .single();
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      const profileRow = data as ProfileRow;
+      const updatedUser = mapRowToAuthUser(profileRow, currentUser.agents);
+      setCurrentUser(updatedUser);
+      setUsers((previous) =>
+        previous.map((user) => (user.id === updatedUser.id ? { ...updatedUser } : user))
+      );
+    },
+    [currentUser]
+  );
+
+  const toggleUserActive = useCallback(
+    async (userId: string, nextActive: boolean) => {
+      const { data, error } = await supabase
+        .from('profiles')
+        .update({ is_active: nextActive, updated_at: new Date().toISOString() })
+        .eq('id', userId)
+        .select(PROFILE_COLUMNS)
+        .single();
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      const updatedRow = data as ProfileRow;
+
+      setUsers((previous) =>
+        previous.map((user) => {
+          if (user.id !== userId) {
             return user;
           }
 
-          return {
-            ...user,
-            ...(typeof updates.name === 'string' ? { name: updates.name.trim() } : {}),
-            ...(typeof updates.avatarUrl !== 'undefined' ? { avatarUrl: updates.avatarUrl } : {}),
-            ...(typeof updates.bio === 'string' ? { bio: updates.bio } : {}),
-            ...(typeof updates.emailVerified === 'boolean'
-              ? { emailVerified: updates.emailVerified }
-              : {})
-          };
-        });
+          return mapRowToAuthUser(updatedRow, user.agents);
+        })
+      );
 
-        return {
-          ...previous,
-          users
-        };
-      });
+      setCurrentUser((previous) =>
+        previous && previous.id === userId
+          ? mapRowToAuthUser(updatedRow, previous.agents)
+          : previous
+      );
     },
     []
   );
 
-  const toggleUserActive = useCallback(async (userId: string, nextActive: boolean) => {
-    setState((previous) => {
-      const users = previous.users.map((user) =>
-        user.id === userId
-          ? {
-              ...user,
-              isActive: nextActive
-            }
-          : user
-      );
-
-      const currentUserId =
-        previous.currentUserId && previous.currentUserId === userId && !nextActive
-          ? null
-          : previous.currentUserId;
-
-      return {
-        users,
-        currentUserId
-      };
-    });
-  }, []);
-
   const addAgent = useCallback(
     async (agent: AgentDraft) => {
-      setState((previous) => {
-        if (!previous.currentUserId) {
-          throw new Error('Kein Nutzer angemeldet.');
-        }
+      if (!currentUser) {
+        throw new Error('Kein aktiver Nutzer.');
+      }
 
-        const newAgent: AgentProfile = sanitizeAgentProfile({
-          id: createAgentId(),
-          name: agent.name,
-          description: agent.description,
-          avatarUrl: agent.avatarUrl,
-          tools: agent.tools,
-          webhookUrl: agent.webhookUrl
-        });
-
-        const users = previous.users.map((user) => {
-          if (user.id !== previous.currentUserId) {
-            return user;
-          }
-
-          return {
-            ...user,
-            agents: [...user.agents, newAgent]
-          };
-        });
-
-        return {
-          ...previous,
-          users
-        };
+      const newAgent: AgentProfile = sanitizeAgentProfile({
+        id: createAgentId(),
+        name: agent.name,
+        description: agent.description,
+        avatarUrl: agent.avatarUrl ?? null,
+        tools: agent.tools,
+        webhookUrl: agent.webhookUrl
       });
+
+      await saveAgentMetadataForProfile(currentUser.id, newAgent);
+
+      setCurrentUser((previous) =>
+        previous
+          ? {
+              ...previous,
+              agents: [...previous.agents, newAgent]
+            }
+          : previous
+      );
+
+      setUsers((previous) =>
+        previous.map((user) =>
+          user.id === currentUser.id
+            ? {
+                ...user,
+                agents: [...user.agents, newAgent]
+              }
+            : user
+        )
+      );
     },
-    []
+    [currentUser]
   );
 
   const updateAgent = useCallback(
     async (agentId: string, updates: AgentUpdatePayload) => {
-      setState((previous) => {
-        if (!previous.currentUserId) {
-          return previous;
-        }
-
-        const users = previous.users.map((user) => {
-          if (user.id !== previous.currentUserId) {
-            return user;
-          }
-
-          const agents = user.agents.map((agent) => {
-            if (agent.id !== agentId) {
-              return agent;
-            }
-
-            const merged = sanitizeAgentProfile({
-              ...agent,
-              ...updates,
-              id: agent.id
-            });
-
-            return merged;
-          });
-
-          return {
-            ...user,
-            agents
-          };
-        });
-
-        return {
-          ...previous,
-          users
-        };
-      });
-    },
-    []
-  );
-
-  const removeAgent = useCallback(async (agentId: string) => {
-    setState((previous) => {
-      if (!previous.currentUserId) {
-        return previous;
+      if (!currentUser) {
+        throw new Error('Kein aktiver Nutzer.');
       }
 
-      const users = previous.users.map((user) => {
-        if (user.id !== previous.currentUserId) {
-          return user;
-        }
+      const existingAgent = currentUser.agents.find((agent) => agent.id === agentId);
+      if (!existingAgent) {
+        throw new Error('Agent wurde nicht gefunden.');
+      }
 
-        return {
-          ...user,
-          agents: user.agents.filter((agent) => agent.id !== agentId)
-        };
+      const updatedAgent: AgentProfile = sanitizeAgentProfile({
+        ...existingAgent,
+        ...updates
       });
 
-      return {
-        ...previous,
-        users
-      };
-    });
-  }, []);
+      await saveAgentMetadataForProfile(currentUser.id, updatedAgent);
+
+      setCurrentUser((previous) =>
+        previous
+          ? {
+              ...previous,
+              agents: previous.agents.map((agent) =>
+                agent.id === agentId ? updatedAgent : agent
+              )
+            }
+          : previous
+      );
+
+      setUsers((previous) =>
+        previous.map((user) =>
+          user.id === currentUser.id
+            ? {
+                ...user,
+                agents: user.agents.map((agent) => (agent.id === agentId ? updatedAgent : agent))
+              }
+            : user
+        )
+      );
+    },
+    [currentUser]
+  );
+
+  const removeAgent = useCallback(
+    async (agentId: string) => {
+      if (!currentUser) {
+        throw new Error('Kein aktiver Nutzer.');
+      }
+
+      await deleteAgentForProfile(currentUser.id, agentId);
+
+      setCurrentUser((previous) =>
+        previous
+          ? {
+              ...previous,
+              agents: previous.agents.filter((agent) => agent.id !== agentId)
+            }
+          : previous
+      );
+
+      setUsers((previous) =>
+        previous.map((user) =>
+          user.id === currentUser.id
+            ? {
+                ...user,
+                agents: user.agents.filter((agent) => agent.id !== agentId)
+              }
+            : user
+        )
+      );
+    },
+    [currentUser]
+  );
 
   const value = useMemo<AuthContextValue>(
     () => ({
       currentUser,
-      users: publicUsers,
+      users,
       isLoading,
       login,
       register,
@@ -384,19 +522,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       updateAgent,
       removeAgent
     }),
-    [
-      currentUser,
-      publicUsers,
-      isLoading,
-      login,
-      register,
-      logout,
-      updateProfile,
-      toggleUserActive,
-      addAgent,
-      updateAgent,
-      removeAgent
-    ]
+    [currentUser, users, isLoading, login, register, logout, updateProfile, toggleUserActive, addAgent, updateAgent, removeAgent]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -407,5 +533,6 @@ export const useAuth = () => {
   if (!context) {
     throw new Error('useAuth muss innerhalb eines AuthProvider verwendet werden.');
   }
+
   return context;
 };

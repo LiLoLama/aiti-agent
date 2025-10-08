@@ -1,6 +1,6 @@
 # AITI Explorer Agent
 
-Der AITI Explorer Agent ist eine moderne React-Anwendung, mit der Teams ihre KI-gestützten Workflows orchestrieren, Agents verwalten und Chat-Konversationen mit externen Automationen verbinden können. Die Anwendung kombiniert eine hochwertige Benutzeroberfläche mit lokaler Persistenz und flexiblen Webhook-Integrationen.
+Der AITI Explorer Agent ist eine moderne React-Anwendung, mit der Teams ihre KI-gestützten Workflows orchestrieren, Agents verwalten und Chat-Konversationen mit externen Automationen verbinden können. Die Anwendung kombiniert eine hochwertige Benutzeroberfläche mit einer Supabase-gestützten Persistenzschicht und flexiblen Webhook-Integrationen.
 
 ## Inhaltsverzeichnis
 - [Überblick](#überblick)
@@ -10,6 +10,7 @@ Der AITI Explorer Agent ist eine moderne React-Anwendung, mit der Teams ihre KI-
   - [Einstellungen & Integrationen](#einstellungen--integrationen)
   - [Authentifizierung & Rollen](#authentifizierung--rollen)
   - [Datenhaltung & Synchronisation](#datenhaltung--synchronisation)
+  - [Supabase Setup](#supabase-setup)
 - [Architektur & Projektstruktur](#architektur--projektstruktur)
 - [Installation & lokale Entwicklung](#installation--lokale-entwicklung)
 - [Konfiguration](#konfiguration)
@@ -37,17 +38,17 @@ Die App stellt drei geschützte Bereiche (Chat, Einstellungen, Profil) sowie ein
 
 ### Authentifizierung & Rollen
 - Login- und Registrierungsformular teilen sich eine Oberfläche, bieten Statusmeldungen und wechseln per Tabs zwischen beiden Modi.
-- Die aktuelle Implementierung speichert Nutzer lokal und ermöglicht das Aktivieren bzw. Deaktivieren von Accounts ohne externes Backend.
+- Die Authentifizierung läuft über Supabase Auth; Profile und Rollen (Nutzer/Admin) werden direkt in der `profiles`-Tabelle gepflegt.
 
 ### Datenhaltung & Synchronisation
-- Chats, Nachrichten und Agenten werden lokal im Browser gespeichert und beim Laden synchronisiert.
-- Lokale Optimistic-Updates sorgen für reaktionsschnelle UI-Erlebnisse, während Webhook-Antworten unmittelbar in die Gesprächshistorie einfließen.
+- Chats, Nachrichten und Agenten werden in Supabase persistiert und bei jedem Login synchronisiert.
+- Optimistic-Updates sorgen für reaktionsschnelle UI-Erlebnisse, während Webhook-Antworten unmittelbar in die Gesprächshistorie einfließen.
 
 ## Architektur & Projektstruktur
 - React 18, React Router und TypeScript liefern das SPA-Framework; Vite dient als Build-Tool.
 - Tailwind CSS, Heroicons und clsx unterstützen das UI-Design.
 - Der Code ist nach Domänen organisiert (Pages, Components, Context, Services, Utils, Types). Die Hauptrouten liegen in `App.tsx` und greifen auf diese Module zurück.
-- Die Supabase-Anbindung wurde entfernt. Persistente Daten werden aktuell im `localStorage` verwaltet, sodass das Backend später neu aufgebaut werden kann.
+- Supabase dient als zentrale Benutzer- und Chat-Datenbank. Profile, Agenten sowie Nachrichten werden in den Tabellen `profiles` und `agent_conversations` gespeichert; Integrationsgeheimnisse landen in `integration_secrets`.
 
 ## Installation & lokale Entwicklung
 1. Repository klonen und Abhängigkeiten installieren:
@@ -70,10 +71,20 @@ Die App stellt drei geschützte Bereiche (Chat, Einstellungen, Profil) sowie ein
 Die Script-Bezeichnungen entsprechen den Vite-Standards und sind in `package.json` hinterlegt.
 
 ## Konfiguration
-Derzeit sind keine externen Umgebungsvariablen erforderlich. Für die zukünftige Backend-Anbindung (z. B. Supabase oder ein eigenes API-Gateway) kann dieser Abschnitt später ergänzt werden.
+### Supabase Setup
+
+Die App erwartet eine Supabase-Instanz mit den Tabellen `profiles`, `agent_conversations` und `integration_secrets`. Alle notwendigen Spalten und Policies sind in [`docs/SUPABASE_SETUP.md`](docs/SUPABASE_SETUP.md) dokumentiert. Nach dem Einrichten müssen die folgenden Umgebungsvariablen gesetzt werden:
+
+```bash
+VITE_SUPABASE_URL=<deine-supabase-url>
+VITE_SUPABASE_ANON_KEY=<dein-supabase-anon-key>
+# alternativ kann VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY verwendet werden
+```
+
+Die Werte werden zur Initialisierung des Supabase-Clients genutzt und sind für Login, Agentenverwaltung und das Speichern der Chatverläufe erforderlich.
 
 ## Webhook-Anbindung
 Chatnachrichten werden zusammen mit Dateianhängen, Audioaufnahmen und Chatverlauf per `FormData` an den konfigurierten Webhook gesendet. Je nach Authentifizierungsmodus werden API-Key-, Basic- oder OAuth-Header ergänzt. Antworten (JSON oder Text) werden normalisiert und im Verlauf gespeichert, Fehler führen zu klaren Meldungen im Chat. Der Chat weist darauf hin, dass Nachrichten typischerweise an n8n-Workflows ausgeliefert werden.
 
 ## Lokale Speicherung & Branding
-Persönliche Einstellungen wie Profilname, Agenten-Branding, Farbschema sowie lokal erstellte Chats und Agenten werden im Browser `localStorage` abgelegt. Bilder werden bei Bedarf komprimiert, um Speicher zu sparen. Änderungen lösen Events aus, die sowohl Profil- als auch Einstellungsseiten synchron halten. Dadurch bleiben individuelle Anpassungen selbst ohne Netzwerkverbindung verfügbar.
+Persönliche Einstellungen wie Profilname, Agenten-Branding und Farbschema werden weiterhin im Browser `localStorage` abgelegt, damit UI-Anpassungen schnell greifen. Chats, Agentenprofile und Integrationsdaten werden jedoch vollständig in Supabase persistiert. Änderungen lösen Events aus, die sowohl Profil- als auch Einstellungsseiten synchron halten.

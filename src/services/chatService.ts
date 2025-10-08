@@ -1,3 +1,4 @@
+import { supabase } from '../utils/supabase';
 import { Chat, ChatAttachment, ChatMessage } from '../data/sampleChats';
 import type { AgentProfile } from '../types/auth';
 import { sanitizeAgentProfile } from '../utils/agents';
@@ -7,7 +8,7 @@ export interface AgentConversationRow {
   profile_id: string;
   agent_id: string | null;
   title?: string | null;
-  messages?: ChatMessage[];
+  messages?: ChatMessage[] | null;
   summary?: string | null;
   last_message_at?: string | null;
   created_at?: string | null;
@@ -26,41 +27,11 @@ export interface AgentConversationUpdatePayload {
   lastMessageAt?: string | null;
 }
 
-const STORAGE_KEY = 'aiti-agent-conversations-v1';
+const CONVERSATION_COLUMNS =
+  'id, profile_id, agent_id, title, summary, messages, last_message_at, created_at, updated_at, agent_name, agent_description, agent_avatar_url, agent_tools, agent_webhook_url';
 
-const readStore = (): AgentConversationRow[] => {
-  if (typeof window === 'undefined') {
-    return [];
-  }
-
-  const raw = window.localStorage.getItem(STORAGE_KEY);
-  if (!raw) {
-    return [];
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as AgentConversationRow[];
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-    return parsed;
-  } catch (error) {
-    console.warn('Konversationen konnten nicht geladen werden.', error);
-    return [];
-  }
-};
-
-const writeStore = (rows: AgentConversationRow[]) => {
-  if (typeof window === 'undefined') {
-    return;
-  }
-
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(rows));
-  } catch (error) {
-    console.warn('Konversationen konnten nicht gespeichert werden.', error);
-  }
-};
+const AGENT_METADATA_COLUMNS =
+  'id, profile_id, agent_id, agent_name, agent_description, agent_avatar_url, agent_tools, agent_webhook_url, title';
 
 const toPreview = (value: string) => (value.length > 140 ? `${value.slice(0, 137)}…` : value);
 
@@ -128,6 +99,16 @@ const parseMessages = (value: unknown): ChatMessage[] => {
     .filter((message): message is ChatMessage => Boolean(message));
 };
 
+const normalizeAgentTools = (value: unknown): string[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((tool) => (typeof tool === 'string' ? tool.trim() : ''))
+    .filter((tool) => tool.length > 0);
+};
+
 export const mapChatRowToChat = (row: AgentConversationRow): Chat => {
   const title = (row.title ?? row.agent_name ?? 'Neuer Chat').trim();
   const messages = parseMessages(row.messages);
@@ -146,15 +127,17 @@ export const mapChatRowToChat = (row: AgentConversationRow): Chat => {
   };
 };
 
-const storeRows = (updater: (rows: AgentConversationRow[]) => AgentConversationRow[]) => {
-  const nextRows = updater(readStore());
-  writeStore(nextRows);
-};
+export const mapConversationRowToAgentProfile = (row: AgentConversationRow): AgentProfile => ({
+  id: row.agent_id ?? row.id,
+  name: (row.agent_name ?? row.title ?? 'Neuer Agent').trim() || 'Neuer Agent',
+  description: (row.agent_description ?? '').trim(),
+  avatarUrl: row.agent_avatar_url ?? null,
+  tools: normalizeAgentTools(row.agent_tools),
+  webhookUrl: (row.agent_webhook_url ?? '').trim()
+});
 
-export const fetchChatsForProfile = async (profileId: string): Promise<AgentConversationRow[]> => {
-  const rows = readStore().filter((row) => row.profile_id === profileId);
-
-  return rows.sort((a, b) => {
+const sortConversationRows = (rows: AgentConversationRow[]) => {
+  return [...rows].sort((a, b) => {
     const aTime = a.last_message_at ?? a.updated_at ?? a.created_at ?? '';
     const bTime = b.last_message_at ?? b.updated_at ?? b.created_at ?? '';
 
@@ -174,6 +157,65 @@ export const fetchChatsForProfile = async (profileId: string): Promise<AgentConv
   });
 };
 
+export const fetchChatsForProfile = async (profileId: string): Promise<AgentConversationRow[]> => {
+  const { data, error } = await supabase
+    .from('agent_conversations')
+    .select(CONVERSATION_COLUMNS)
+    .eq('profile_id', profileId)
+    .order('last_message_at', { ascending: false, nullsFirst: false })
+    .order('updated_at', { ascending: false, nullsFirst: false });
+
+  if (error) {
+    throw error;
+  }
+
+  return sortConversationRows((data as AgentConversationRow[]) ?? []);
+};
+
+export const fetchAgentMetadataForProfile = async (profileId: string): Promise<AgentProfile[]> => {
+  const { data, error } = await supabase
+    .from('agent_conversations')
+    .select(AGENT_METADATA_COLUMNS)
+    .eq('profile_id', profileId);
+
+  if (error) {
+    throw error;
+  }
+
+  return ((data as AgentConversationRow[]) ?? []).map((row) => mapConversationRowToAgentProfile(row));
+};
+
+export const fetchAgentMetadataForProfiles = async (
+  profileIds: string[]
+): Promise<Map<string, AgentProfile[]>> => {
+  const map = new Map<string, AgentProfile[]>();
+  if (profileIds.length === 0) {
+    return map;
+  }
+
+  const { data, error } = await supabase
+    .from('agent_conversations')
+    .select(AGENT_METADATA_COLUMNS)
+    .in('profile_id', profileIds);
+
+  if (error) {
+    throw error;
+  }
+
+  for (const row of (data as AgentConversationRow[]) ?? []) {
+    const profileId = row.profile_id;
+    if (!profileId) {
+      continue;
+    }
+
+    const current = map.get(profileId) ?? [];
+    current.push(mapConversationRowToAgentProfile(row));
+    map.set(profileId, current);
+  }
+
+  return map;
+};
+
 export const createChatForProfile = async (
   profileId: string,
   chat: Chat,
@@ -182,173 +224,89 @@ export const createChatForProfile = async (
   const sanitizedAgent = agent ? sanitizeAgentProfile(agent) : undefined;
   const now = new Date().toISOString();
 
-  storeRows((rows) => {
-    const existingIndex = rows.findIndex(
-      (row) => row.profile_id === profileId && row.agent_id === chat.agentId
-    );
+  const payload = {
+    id: chat.id,
+    profile_id: profileId,
+    agent_id: chat.agentId || sanitizedAgent?.id || chat.id,
+    title: chat.name,
+    summary: chat.preview,
+    messages: chat.messages,
+    last_message_at: now,
+    agent_name: sanitizedAgent?.name ?? chat.name,
+    agent_description: sanitizedAgent?.description ?? '',
+    agent_avatar_url: sanitizedAgent?.avatarUrl ?? null,
+    agent_tools: sanitizedAgent?.tools ?? [],
+    agent_webhook_url: sanitizedAgent?.webhookUrl ?? null,
+    updated_at: now
+  };
 
-    const baseRow: AgentConversationRow = {
-      id: chat.id,
-      profile_id: profileId,
-      agent_id: chat.agentId,
-      title: chat.name,
-      messages: chat.messages,
-      summary: chat.preview,
-      last_message_at: now,
-      created_at: existingIndex >= 0 ? rows[existingIndex].created_at ?? now : now,
-      updated_at: now,
-      agent_name: sanitizedAgent?.name ?? chat.name,
-      agent_description: sanitizedAgent?.description ?? null,
-      agent_avatar_url: sanitizedAgent?.avatarUrl ?? null,
-      agent_tools: sanitizedAgent?.tools ?? [],
-      agent_webhook_url: sanitizedAgent?.webhookUrl ?? null
-    };
+  const { error } = await supabase
+    .from('agent_conversations')
+    .upsert(payload, { onConflict: 'profile_id,agent_id' });
 
-    if (existingIndex >= 0) {
-      const nextRows = [...rows];
-      nextRows[existingIndex] = {
-        ...rows[existingIndex],
-        ...baseRow
-      };
-      return nextRows;
-    }
-
-    return [...rows, baseRow];
-  });
+  if (error) {
+    throw error;
+  }
 };
 
-export const updateChatRow = async (chatId: string, updates: AgentConversationUpdatePayload) => {
-  const now = new Date().toISOString();
+export const updateChatRow = async (id: string, payload: AgentConversationUpdatePayload) => {
+  const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
 
-  storeRows((rows) =>
-    rows.map((row) => {
-      if (row.id !== chatId) {
-        return row;
-      }
-
-      return {
-        ...row,
-        ...(typeof updates.title === 'string' ? { title: updates.title } : {}),
-        ...(updates.messages ? { messages: updates.messages } : {}),
-        ...(typeof updates.summary === 'string' ? { summary: updates.summary } : {}),
-        ...(typeof updates.lastMessageAt === 'string'
-          ? { last_message_at: updates.lastMessageAt, updated_at: updates.lastMessageAt }
-          : { updated_at: now })
-      };
-    })
-  );
-};
-
-export const mapRowToAgentProfile = (row: AgentConversationRow): AgentProfile | null => {
-  const agentId = typeof row.agent_id === 'string' ? row.agent_id : null;
-  if (!agentId) {
-    return null;
+  if (typeof payload.title === 'string') {
+    updates.title = payload.title;
   }
 
-  return sanitizeAgentProfile({
-    id: agentId,
-    name: (row.agent_name ?? row.title ?? 'AITI Agent').trim(),
-    description: row.agent_description ?? '',
-    avatarUrl: row.agent_avatar_url ?? null,
-    tools: Array.isArray(row.agent_tools) ? row.agent_tools : [],
-    webhookUrl: row.agent_webhook_url ?? ''
-  });
-};
-
-export const fetchAgentProfilesForProfile = async (profileId: string): Promise<AgentProfile[]> => {
-  const rows = readStore().filter((row) => row.profile_id === profileId);
-  const seen = new Set<string>();
-  const agents: AgentProfile[] = [];
-
-  for (const row of rows) {
-    const mapped = mapRowToAgentProfile(row);
-    if (mapped && !seen.has(mapped.id)) {
-      seen.add(mapped.id);
-      agents.push(mapped);
-    }
+  if (payload.messages) {
+    updates.messages = payload.messages;
   }
 
-  return agents;
-};
-
-export const fetchAgentProfilesForProfiles = async (
-  profileIds: string[]
-): Promise<Record<string, AgentProfile[]>> => {
-  if (profileIds.length === 0) {
-    return {};
+  if (payload.summary !== undefined) {
+    updates.summary = payload.summary;
   }
 
-  const rows = readStore().filter((row) => profileIds.includes(row.profile_id));
-  const result: Record<string, AgentProfile[]> = {};
-
-  for (const row of rows) {
-    const mapped = mapRowToAgentProfile(row);
-    if (!mapped) {
-      continue;
-    }
-
-    if (!result[row.profile_id]) {
-      result[row.profile_id] = [];
-    }
-
-    if (!result[row.profile_id].some((agent) => agent.id === mapped.id)) {
-      result[row.profile_id].push(mapped);
-    }
+  if (payload.lastMessageAt) {
+    updates.last_message_at = payload.lastMessageAt;
   }
 
-  return result;
+  const { error } = await supabase.from('agent_conversations').update(updates).eq('id', id);
+
+  if (error) {
+    throw error;
+  }
 };
 
 export const saveAgentMetadataForProfile = async (profileId: string, agent: AgentProfile) => {
   const sanitized = sanitizeAgentProfile(agent);
-  const now = new Date().toISOString();
-  let createdId = sanitized.id;
+  const payload = {
+    id: sanitized.id,
+    profile_id: profileId,
+    agent_id: sanitized.id,
+    agent_name: sanitized.name,
+    agent_description: sanitized.description,
+    agent_avatar_url: sanitized.avatarUrl,
+    agent_tools: sanitized.tools,
+    agent_webhook_url: sanitized.webhookUrl,
+    title: sanitized.name,
+    updated_at: new Date().toISOString()
+  };
 
-  storeRows((rows) => {
-    const nextRows = [...rows];
-    const existingIndex = nextRows.findIndex(
-      (row) => row.profile_id === profileId && row.agent_id === sanitized.id
-    );
+  const { error } = await supabase
+    .from('agent_conversations')
+    .upsert(payload, { onConflict: 'profile_id,agent_id' });
 
-    if (existingIndex >= 0) {
-      nextRows[existingIndex] = {
-        ...nextRows[existingIndex],
-        agent_name: sanitized.name,
-        agent_description: sanitized.description,
-        agent_avatar_url: sanitized.avatarUrl ?? null,
-        agent_tools: sanitized.tools,
-        agent_webhook_url: sanitized.webhookUrl,
-        title: sanitized.name,
-        updated_at: now
-      };
-      createdId = nextRows[existingIndex].id;
-      return nextRows;
-    }
-
-    const newRow: AgentConversationRow = {
-      id: sanitized.id,
-      profile_id: profileId,
-      agent_id: sanitized.id,
-      agent_name: sanitized.name,
-      agent_description: sanitized.description,
-      agent_avatar_url: sanitized.avatarUrl ?? null,
-      agent_tools: sanitized.tools,
-      agent_webhook_url: sanitized.webhookUrl,
-      title: sanitized.name,
-      summary: null,
-      messages: [],
-      created_at: now,
-      updated_at: now,
-      last_message_at: null
-    };
-
-    nextRows.push(newRow);
-    return nextRows;
-  });
-
-  return createdId;
+  if (error) {
+    throw error;
+  }
 };
 
 export const deleteAgentForProfile = async (profileId: string, agentId: string) => {
-  storeRows((rows) => rows.filter((row) => !(row.profile_id === profileId && row.agent_id === agentId)));
+  const { error } = await supabase
+    .from('agent_conversations')
+    .delete()
+    .eq('profile_id', profileId)
+    .eq('agent_id', agentId);
+
+  if (error) {
+    throw error;
+  }
 };
