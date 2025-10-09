@@ -10,6 +10,7 @@ import {
 } from 'react';
 import { User } from '@supabase/supabase-js';
 import supabase from '../utils/supabase';
+import { loadCachedAuthUser, saveCachedAuthUser } from '../utils/storage';
 import {
   AgentDraft,
   AgentProfile,
@@ -141,18 +142,19 @@ const mapProfileRowToAuthUser = (
     emailVerified?: boolean;
   }
 ): AuthUser => {
-  const fallbackName = fallback?.name && fallback.name.trim().length > 0 ? fallback.name.trim() : null;
-  const fallbackEmail = fallback?.email ?? '';
+  const normalizedDisplayName = row.display_name?.trim().length ? row.display_name.trim() : null;
+  const normalizedEmail = row.email?.trim().length ? row.email.trim() : null;
+  const fallbackNameTrimmed = fallback?.name?.trim();
+  const fallbackEmailTrimmed = fallback?.email?.trim();
+  const fallbackName = fallbackNameTrimmed && fallbackNameTrimmed.length > 0 ? fallbackNameTrimmed : null;
+  const fallbackEmail = fallbackEmailTrimmed && fallbackEmailTrimmed.length > 0 ? fallbackEmailTrimmed : null;
   const fallbackAvatar = fallback?.avatarUrl ?? null;
   const fallbackEmailVerified = fallback?.emailVerified ?? false;
 
-  const preferredName = row.display_name?.trim().length ? row.display_name.trim() : null;
-  const secondaryName = row.name?.trim().length ? row.name.trim() : null;
-
   return {
     id: row.id,
-    name: preferredName ?? secondaryName ?? fallbackName ?? fallbackEmail ?? 'Neuer Nutzer',
-    email: row.email ?? fallbackEmail,
+    name: normalizedDisplayName ?? fallbackName ?? fallbackEmail ?? 'Neuer Nutzer',
+    email: normalizedEmail ?? fallbackEmail ?? '',
     role: row.role === 'admin' ? 'admin' : 'user',
     isActive: row.is_active ?? true,
     avatarUrl: row.avatar_url ?? fallbackAvatar,
@@ -239,7 +241,6 @@ const ensureProfileForUser = async (user: User, preferredName?: string) => {
     id: user.id,
     email: user.email ?? '',
     display_name: normalizedName,
-    name: normalizedName,
     avatar_url: avatar,
     role: 'user',
     bio: '',
@@ -260,16 +261,19 @@ const ensureProfileForUser = async (user: User, preferredName?: string) => {
 };
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [currentUser, setCurrentUserState] = useState<AuthUser | null>(null);
-  const [users, setUsers] = useState<AuthUser[]>([]);
+  const cachedUserRef = useRef<AuthUser | null>(loadCachedAuthUser());
+  const [currentUser, setCurrentUserState] = useState<AuthUser | null>(cachedUserRef.current);
+  const [users, setUsers] = useState<AuthUser[]>(() => (cachedUserRef.current ? [cachedUserRef.current] : []));
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  const currentUserRef = useRef<AuthUser | null>(null);
+  const currentUserRef = useRef<AuthUser | null>(cachedUserRef.current);
   const currentUserLoaderRef = useRef<Promise<void> | null>(null);
 
   const setCurrentUser = useCallback((nextUser: AuthUser | null) => {
     currentUserRef.current = nextUser;
     setCurrentUserState(nextUser);
+    cachedUserRef.current = nextUser;
+    saveCachedAuthUser(nextUser);
   }, []);
 
   const refreshUsersList = useCallback(
@@ -296,7 +300,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (isRowLevelSecurityError(agentsError)) {
             const fallbackUsers = (profileRows ?? []).map((row) =>
               mapProfileRowToAuthUser(row as ProfileRow, [], {
-                name: row.display_name ?? row.name ?? undefined,
+                name: row.display_name ?? undefined,
                 email: row.email ?? undefined,
                 avatarUrl: row.avatar_url ?? undefined
               })
@@ -318,7 +322,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         const nextUsers = (profileRows ?? []).map((row) =>
           mapProfileRowToAuthUser(row as ProfileRow, agentsByProfile.get(row.id) ?? [], {
-            name: row.display_name ?? row.name ?? undefined,
+            name: row.display_name ?? undefined,
             email: row.email ?? undefined,
             avatarUrl: row.avatar_url ?? undefined
           })
@@ -508,7 +512,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (typeof updates.name === 'string') {
         const trimmed = updates.name.trim();
         payload.display_name = trimmed.length > 0 ? trimmed : currentUser.name;
-        payload.name = trimmed.length > 0 ? trimmed : currentUser.name;
       }
 
       if ('avatarUrl' in updates) {

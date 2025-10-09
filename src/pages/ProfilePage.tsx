@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import {
   ArrowLeftIcon,
@@ -13,7 +13,14 @@ import clsx from 'clsx';
 import { useAuth } from '../context/AuthContext';
 import { AgentProfile } from '../types/auth';
 import { AgentSettings, toSettingsEventPayload } from '../types/settings';
-import { loadAgentSettings, saveAgentSettings } from '../utils/storage';
+import {
+  loadAgentDraft,
+  loadAgentSettings,
+  loadProfileDraft,
+  saveAgentDraft,
+  saveAgentSettings,
+  saveProfileDraft
+} from '../utils/storage';
 import { applyColorScheme } from '../utils/theme';
 import { sendWebhookMessage } from '../utils/webhook';
 import { prepareImageForStorage } from '../utils/image';
@@ -23,6 +30,7 @@ import {
 } from '../services/integrationSecretsService';
 import userAvatar from '../assets/default-user.svg';
 import agentFallbackAvatar from '../assets/agent-avatar.png';
+import { useToast } from '../context/ToastContext';
 
 interface AgentFormState {
   name: string;
@@ -55,16 +63,20 @@ export function ProfilePage() {
   } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const [name, setName] = useState(currentUser?.name ?? '');
-  const [bio, setBio] = useState(currentUser?.bio ?? '');
-  const [avatarPreview, setAvatarPreview] = useState<string | null>(currentUser?.avatarUrl ?? null);
+  const { showToast } = useToast();
+  const [name, setName] = useState('');
+  const [bio, setBio] = useState('');
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [feedback, setFeedback] = useState<'success' | 'error' | null>(null);
   const [redirectAfterSave, setRedirectAfterSave] = useState(() =>
     Boolean((location.state as { onboarding?: boolean } | null)?.onboarding)
   );
   const [agentModal, setAgentModal] = useState<AgentModalState | null>(null);
   const [agentForm, setAgentForm] = useState<AgentFormState>(() => createEmptyAgentForm());
+  const agentCreateDraftRef = useRef<AgentFormState>(createEmptyAgentForm());
+  const profileDraftInitializedRef = useRef(false);
+  const agentDraftInitializedRef = useRef(false);
+  const agentDraftUserRef = useRef<string | null>(null);
   const [agentSaving, setAgentSaving] = useState(false);
   const [agentError, setAgentError] = useState<string | null>(null);
   const [agentSettings, setAgentSettings] = useState<AgentSettings>(() => loadAgentSettings());
@@ -82,6 +94,116 @@ export function ProfilePage() {
   const displayedAvatar = avatarPreview ?? userAvatar;
   const userAgents = currentUser.agents;
   const agentAvatarPreview = agentForm.avatarUrl ?? agentFallbackAvatar;
+
+  useEffect(() => {
+    if (!currentUser) {
+      setName('');
+      setBio('');
+      setAvatarPreview(null);
+      profileDraftInitializedRef.current = false;
+      return;
+    }
+
+    const storedDraft = loadProfileDraft(currentUser.id);
+    if (storedDraft) {
+      const draftName = storedDraft.name?.trim().length ? storedDraft.name : null;
+      const fallbackName = currentUser.name.trim().length > 0 ? currentUser.name : 'Neuer Nutzer';
+      setName(draftName ?? fallbackName);
+      setBio(storedDraft.bio);
+      setAvatarPreview(
+        typeof storedDraft.avatarUrl === 'string' && storedDraft.avatarUrl.length > 0
+          ? storedDraft.avatarUrl
+          : currentUser.avatarUrl ?? null
+      );
+    } else {
+      const fallbackName = currentUser.name.trim().length > 0 ? currentUser.name : 'Neuer Nutzer';
+      setName(fallbackName);
+      setBio(currentUser.bio ?? '');
+      setAvatarPreview(currentUser.avatarUrl ?? null);
+    }
+
+    profileDraftInitializedRef.current = true;
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (!currentUser || !profileDraftInitializedRef.current) {
+      return;
+    }
+
+    const normalizedName = name.trim();
+    const baselineName = (currentUser.name ?? '').trim();
+    const baselineBio = currentUser.bio ?? '';
+    const baselineAvatar = currentUser.avatarUrl ?? null;
+    const nextDraft = {
+      name,
+      bio,
+      avatarUrl: avatarPreview
+    };
+
+    const hasChanges =
+      normalizedName !== baselineName || bio !== baselineBio || (avatarPreview ?? null) !== baselineAvatar;
+
+    if (hasChanges) {
+      saveProfileDraft(currentUser.id, nextDraft);
+    } else {
+      saveProfileDraft(currentUser.id, null);
+    }
+  }, [avatarPreview, bio, currentUser, name]);
+
+  useEffect(() => {
+    if (!currentUser) {
+      agentDraftInitializedRef.current = false;
+      agentDraftUserRef.current = null;
+      const emptyDraft = createEmptyAgentForm();
+      agentCreateDraftRef.current = emptyDraft;
+      setAgentForm(emptyDraft);
+      return;
+    }
+
+    if (agentDraftInitializedRef.current && agentDraftUserRef.current === currentUser.id) {
+      return;
+    }
+
+    const storedDraft = loadAgentDraft(currentUser.id);
+    const nextDraft: AgentFormState = storedDraft
+      ? {
+          name: storedDraft.name,
+          description: storedDraft.description,
+          tools: storedDraft.tools,
+          webhookUrl: storedDraft.webhookUrl,
+          avatarUrl: storedDraft.avatarUrl
+        }
+      : createEmptyAgentForm();
+
+    agentCreateDraftRef.current = nextDraft;
+    if (!agentModal || agentModal.mode !== 'edit') {
+      setAgentForm(nextDraft);
+    }
+
+    agentDraftInitializedRef.current = true;
+    agentDraftUserRef.current = currentUser.id;
+  }, [agentModal, currentUser]);
+
+  useEffect(() => {
+    if (!currentUser || !agentDraftInitializedRef.current || agentModal?.mode === 'edit') {
+      return;
+    }
+
+    agentCreateDraftRef.current = agentForm;
+
+    const hasContent =
+      agentForm.name.trim().length > 0 ||
+      agentForm.description.trim().length > 0 ||
+      agentForm.tools.trim().length > 0 ||
+      agentForm.webhookUrl.trim().length > 0 ||
+      Boolean(agentForm.avatarUrl);
+
+    if (hasContent) {
+      saveAgentDraft(currentUser.id, agentForm);
+    } else {
+      saveAgentDraft(currentUser.id, null);
+    }
+  }, [agentForm, agentModal?.mode, currentUser]);
 
   useEffect(() => {
     applyColorScheme(agentSettings.colorScheme);
@@ -134,7 +256,7 @@ export function ProfilePage() {
   useEffect(() => {
     const state = location.state as { onboarding?: boolean; openAgentModal?: 'create' } | null;
     if (state?.openAgentModal === 'create') {
-      setAgentForm(createEmptyAgentForm());
+      setAgentForm(agentCreateDraftRef.current ?? createEmptyAgentForm());
       setAgentModal({ mode: 'create' });
       setAgentError(null);
       setAgentWebhookTestStatus('idle');
@@ -160,7 +282,11 @@ export function ProfilePage() {
       setAvatarPreview(result);
     } catch (error) {
       console.error('Profilbild konnte nicht verarbeitet werden.', error);
-      setFeedback('error');
+      showToast({
+        type: 'error',
+        title: 'Profilbild konnte nicht verarbeitet werden',
+        description: 'Bitte versuche es mit einer anderen Datei.'
+      });
     }
   };
 
@@ -170,7 +296,7 @@ export function ProfilePage() {
   };
 
   const openCreateAgentModal = () => {
-    setAgentForm(createEmptyAgentForm());
+    setAgentForm(agentCreateDraftRef.current ?? createEmptyAgentForm());
     setAgentModal({ mode: 'create' });
     setAgentError(null);
     resetAgentWebhookTest();
@@ -189,11 +315,30 @@ export function ProfilePage() {
     resetAgentWebhookTest();
   };
 
-  const closeAgentModal = () => {
+  const closeAgentModal = (options?: { resetDraft?: boolean }) => {
+    const previousModal = agentModal;
     setAgentModal(null);
     setAgentError(null);
-    setAgentForm(createEmptyAgentForm());
     resetAgentWebhookTest();
+
+    if (!previousModal) {
+      return;
+    }
+
+    if (previousModal.mode === 'create') {
+      if (options?.resetDraft) {
+        const emptyDraft = createEmptyAgentForm();
+        agentCreateDraftRef.current = emptyDraft;
+        setAgentForm(emptyDraft);
+        if (currentUser) {
+          saveAgentDraft(currentUser.id, null);
+        }
+      } else {
+        setAgentForm(agentCreateDraftRef.current);
+      }
+    } else if (previousModal.mode === 'edit') {
+      setAgentForm(agentCreateDraftRef.current);
+    }
   };
 
   const handleDeleteAgent = async (agentId: string) => {
@@ -204,12 +349,24 @@ export function ProfilePage() {
       }
     }
 
+    const agentToRemove = currentUser.agents.find((agent) => agent.id === agentId);
+
     try {
       await removeAgent(agentId);
+      showToast({
+        type: 'success',
+        title: 'Agent gelöscht',
+        description: agentToRemove?.name ? `${agentToRemove.name} wurde entfernt.` : 'Agent wurde entfernt.'
+      });
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Agent konnte nicht gelöscht werden.';
       setAgentError(message);
+      showToast({
+        type: 'error',
+        title: 'Agent konnte nicht gelöscht werden',
+        description: message
+      });
     }
   };
 
@@ -234,21 +391,38 @@ export function ProfilePage() {
   const performToggleUserActive = async (userId: string, nextActive: boolean) => {
     setAdminError(null);
 
+    const affectedUser =
+      users.find((user) => user.id === userId) ?? (currentUser.id === userId ? currentUser : null);
+
     try {
       await toggleUserActive(userId, nextActive);
+      showToast({
+        type: 'success',
+        title: nextActive ? 'Nutzer aktiviert' : 'Nutzer deaktiviert',
+        description: affectedUser
+          ? `${affectedUser.name} wurde ${nextActive ? 'aktiviert' : 'deaktiviert'}.`
+          : 'Status wurde aktualisiert.'
+      });
     } catch (error) {
       const message =
         error instanceof Error
           ? error.message
           : 'Nutzerstatus konnte nicht aktualisiert werden.';
       setAdminError(message);
+      showToast({
+        type: 'error',
+        title: 'Nutzerstatus konnte nicht aktualisiert werden',
+        description: message
+      });
     }
   };
 
   const handleAgentSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (!agentModal) {
+    const activeModal = agentModal;
+
+    if (!activeModal) {
       return;
     }
 
@@ -261,7 +435,7 @@ export function ProfilePage() {
       .filter((tool) => tool.length > 0);
 
     try {
-      if (agentModal.mode === 'create') {
+      if (activeModal.mode === 'create') {
         await addAgent({
           name: agentForm.name,
           description: agentForm.description,
@@ -269,21 +443,39 @@ export function ProfilePage() {
           tools,
           webhookUrl: agentForm.webhookUrl
         });
+        const draftName = agentForm.name.trim().length > 0 ? agentForm.name.trim() : 'Neuer Agent';
+        closeAgentModal({ resetDraft: true });
+        showToast({
+          type: 'success',
+          title: 'Agent erstellt',
+          description: `${draftName} wurde gespeichert.`
+        });
       } else {
-        await updateAgent(agentModal.agent.id, {
+        await updateAgent(activeModal.agent.id, {
           name: agentForm.name,
           description: agentForm.description,
           avatarUrl: agentForm.avatarUrl,
           tools,
           webhookUrl: agentForm.webhookUrl
         });
+        const updatedName =
+          agentForm.name.trim().length > 0 ? agentForm.name.trim() : activeModal.agent.name;
+        closeAgentModal();
+        showToast({
+          type: 'success',
+          title: 'Agent aktualisiert',
+          description: `${updatedName} wurde aktualisiert.`
+        });
       }
-
-      closeAgentModal();
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Agent konnte nicht gespeichert werden.';
       setAgentError(message);
+      showToast({
+        type: 'error',
+        title: 'Agent konnte nicht gespeichert werden',
+        description: message
+      });
     } finally {
       setAgentSaving(false);
     }
@@ -291,8 +483,12 @@ export function ProfilePage() {
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+
+    if (!currentUser) {
+      return;
+    }
+
     setIsSaving(true);
-    setFeedback(null);
 
     try {
       await updateProfile({
@@ -300,17 +496,27 @@ export function ProfilePage() {
         bio,
         avatarUrl: avatarPreview
       });
-      setFeedback('success');
+      saveProfileDraft(currentUser.id, null);
+      showToast({
+        type: 'success',
+        title: 'Profil aktualisiert',
+        description: 'Deine Änderungen wurden gespeichert.'
+      });
       if (redirectAfterSave) {
         setRedirectAfterSave(false);
         setTimeout(() => navigate('/', { replace: true }), 600);
       }
     } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Profil konnte nicht aktualisiert werden.';
       console.error(error);
-      setFeedback('error');
+      showToast({
+        type: 'error',
+        title: 'Profil konnte nicht gespeichert werden',
+        description: message
+      });
     } finally {
       setIsSaving(false);
-      setTimeout(() => setFeedback(null), 4000);
     }
   };
 
@@ -628,17 +834,6 @@ export function ProfilePage() {
                 </div>
               </div>
 
-              {feedback === 'success' && (
-                <div className="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
-                  Profil aktualisiert!
-                </div>
-              )}
-              {feedback === 'error' && (
-                <div className="rounded-2xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
-                  Aktualisierung fehlgeschlagen. Bitte versuche es später erneut.
-                </div>
-              )}
-
               <div className="flex flex-wrap items-center gap-3">
                 <button
                   type="submit"
@@ -779,7 +974,7 @@ export function ProfilePage() {
       {agentModal && (
         <div
           className="fixed inset-0 z-50 overflow-y-auto bg-black/60 px-4 py-10"
-          onClick={closeAgentModal}
+          onClick={() => closeAgentModal()}
         >
           <div className="mx-auto flex min-h-full w-full max-w-2xl items-center justify-center">
             <div
@@ -788,7 +983,7 @@ export function ProfilePage() {
             >
               <button
                 type="button"
-                onClick={closeAgentModal}
+                onClick={() => closeAgentModal()}
                 className="absolute right-5 top-5 rounded-full border border-white/10 p-2 text-white/60 transition hover:bg-white/10 hover:text-white"
               >
                 <XMarkIcon className="h-5 w-5" />
@@ -926,7 +1121,7 @@ export function ProfilePage() {
                 </button>
                 <button
                   type="button"
-                  onClick={closeAgentModal}
+                  onClick={() => closeAgentModal()}
                   className="text-sm text-white/50 hover:text-white"
                 >
                   Abbrechen
