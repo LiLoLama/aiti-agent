@@ -171,68 +171,90 @@ export const upsertAgentConversation = async (
   agentId: string,
   updates: AgentConversationUpdatePayload
 ): Promise<AgentConversationRecord> => {
-  const payload: Record<string, unknown> = {
+  const selection =
+    'id, profile_id, agent_id, agent_name, agent_description, agent_avatar_url, agent_webhook_url, agent_tools, messages, summary, last_message_at, created_at, updated_at';
+  const timestamp = new Date().toISOString();
+
+  const updatePayload: Record<string, unknown> = {
+    updated_at: timestamp
+  };
+  const insertPayload: Record<string, unknown> = {
     profile_id: profileId,
     agent_id: agentId,
-    updated_at: new Date().toISOString()
+    updated_at: timestamp
   };
 
   if (updates.messages !== undefined) {
-    payload.messages = updates.messages;
+    updatePayload.messages = updates.messages;
+    insertPayload.messages = updates.messages;
   }
   if (updates.summary !== undefined) {
-    payload.summary = updates.summary;
+    updatePayload.summary = updates.summary;
+    insertPayload.summary = updates.summary;
   }
   if (updates.lastMessageAt !== undefined) {
-    payload.last_message_at = updates.lastMessageAt;
+    updatePayload.last_message_at = updates.lastMessageAt;
+    insertPayload.last_message_at = updates.lastMessageAt;
   }
   if (updates.agentName !== undefined) {
-    payload.agent_name = updates.agentName;
+    updatePayload.agent_name = updates.agentName;
+    insertPayload.agent_name = updates.agentName;
   }
   if (updates.agentDescription !== undefined) {
-    payload.agent_description = updates.agentDescription;
+    updatePayload.agent_description = updates.agentDescription;
+    insertPayload.agent_description = updates.agentDescription;
   }
   if (updates.agentAvatarUrl !== undefined) {
-    payload.agent_avatar_url = updates.agentAvatarUrl;
+    updatePayload.agent_avatar_url = updates.agentAvatarUrl;
+    insertPayload.agent_avatar_url = updates.agentAvatarUrl;
   }
   if (updates.agentWebhookUrl !== undefined) {
-    payload.agent_webhook_url = updates.agentWebhookUrl;
+    updatePayload.agent_webhook_url = updates.agentWebhookUrl;
+    insertPayload.agent_webhook_url = updates.agentWebhookUrl;
   }
   if (updates.agentTools !== undefined) {
-    payload.agent_tools = sanitizeTools(updates.agentTools);
+    const sanitizedTools = sanitizeTools(updates.agentTools);
+    updatePayload.agent_tools = sanitizedTools;
+    insertPayload.agent_tools = sanitizedTools;
   }
 
-  const { data, error } = await supabase
+  const { data: updatedRows, error: updateError } = await supabase
     .from('agent_conversations')
-    .upsert(payload, { onConflict: 'profile_id,agent_id' })
-    .select(
-      'id, profile_id, agent_id, agent_name, agent_description, agent_avatar_url, agent_webhook_url, agent_tools, messages, summary, last_message_at, created_at, updated_at'
-    );
-
-  if (error) {
-    throw new Error(error.message ?? 'Konversation konnte nicht gespeichert werden.');
-  }
-
-  const row = Array.isArray(data) ? (data[0] as AgentConversationRow | undefined) : (data as AgentConversationRow | null);
-
-  if (row) {
-    return mapRowToRecord(row);
-  }
-
-  const { data: fetched, error: fetchError } = await supabase
-    .from('agent_conversations')
-    .select(
-      'id, profile_id, agent_id, agent_name, agent_description, agent_avatar_url, agent_webhook_url, agent_tools, messages, summary, last_message_at, created_at, updated_at'
-    )
+    .update(updatePayload)
     .eq('profile_id', profileId)
     .eq('agent_id', agentId)
-    .maybeSingle();
+    .select(selection);
 
-  if (fetchError) {
-    throw new Error(fetchError.message ?? 'Konversation konnte nicht geladen werden.');
+  if (updateError) {
+    throw new Error(updateError.message ?? 'Konversation konnte nicht gespeichert werden.');
   }
 
-  return mapRowToRecord(fetched as AgentConversationRow | null);
+  const updatedRow = Array.isArray(updatedRows)
+    ? ((updatedRows[0] as AgentConversationRow | undefined) ?? null)
+    : ((updatedRows as AgentConversationRow | null) ?? null);
+
+  if (updatedRow) {
+    return mapRowToRecord(updatedRow);
+  }
+
+  const { data: insertedRows, error: insertError } = await supabase
+    .from('agent_conversations')
+    .insert(insertPayload)
+    .select(selection);
+
+  if (insertError) {
+    throw new Error(insertError.message ?? 'Konversation konnte nicht gespeichert werden.');
+  }
+
+  const insertedRow = Array.isArray(insertedRows)
+    ? ((insertedRows[0] as AgentConversationRow | undefined) ?? null)
+    : ((insertedRows as AgentConversationRow | null) ?? null);
+
+  if (insertedRow) {
+    return mapRowToRecord(insertedRow);
+  }
+
+  throw new Error('Konversation konnte nicht gespeichert werden.');
 };
 
 export const deleteAgentConversation = async (
