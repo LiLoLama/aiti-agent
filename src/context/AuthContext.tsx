@@ -142,19 +142,19 @@ const mapProfileRowToAuthUser = (
     emailVerified?: boolean;
   }
 ): AuthUser => {
-  const fallbackName = fallback?.name && fallback.name.trim().length > 0 ? fallback.name.trim() : null;
-  const fallbackEmail = fallback?.email ?? '';
+  const normalizedDisplayName = row.display_name?.trim().length ? row.display_name.trim() : null;
+  const normalizedEmail = row.email?.trim().length ? row.email.trim() : null;
+  const fallbackNameTrimmed = fallback?.name?.trim();
+  const fallbackEmailTrimmed = fallback?.email?.trim();
+  const fallbackName = fallbackNameTrimmed && fallbackNameTrimmed.length > 0 ? fallbackNameTrimmed : null;
+  const fallbackEmail = fallbackEmailTrimmed && fallbackEmailTrimmed.length > 0 ? fallbackEmailTrimmed : null;
   const fallbackAvatar = fallback?.avatarUrl ?? null;
   const fallbackEmailVerified = fallback?.emailVerified ?? false;
 
   return {
     id: row.id,
-    name:
-      (row.display_name?.trim().length ? row.display_name.trim() : null) ??
-      fallbackName ??
-      fallbackEmail ??
-      'Neuer Nutzer',
-    email: row.email ?? fallbackEmail,
+    name: normalizedDisplayName ?? fallbackName ?? fallbackEmail ?? 'Neuer Nutzer',
+    email: normalizedEmail ?? fallbackEmail ?? '',
     role: row.role === 'admin' ? 'admin' : 'user',
     isActive: row.is_active ?? true,
     avatarUrl: row.avatar_url ?? fallbackAvatar,

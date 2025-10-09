@@ -160,7 +160,17 @@ export function loadCachedAuthUser(): AuthUser | null {
 
     const parsed = JSON.parse(raw) as AuthUser & { cachedAt?: number };
     if (parsed && typeof parsed === 'object') {
-      return parsed;
+      const sanitizedName =
+        typeof parsed.name === 'string' && parsed.name.trim().length > 0
+          ? parsed.name.trim()
+          : typeof parsed.email === 'string' && parsed.email.trim().length > 0
+            ? parsed.email.trim()
+            : 'Neuer Nutzer';
+
+      return {
+        ...parsed,
+        name: sanitizedName
+      };
     }
 
     return null;

@@ -106,7 +106,9 @@ export function ProfilePage() {
 
     const storedDraft = loadProfileDraft(currentUser.id);
     if (storedDraft) {
-      setName(storedDraft.name);
+      const draftName = storedDraft.name?.trim().length ? storedDraft.name : null;
+      const fallbackName = currentUser.name.trim().length > 0 ? currentUser.name : 'Neuer Nutzer';
+      setName(draftName ?? fallbackName);
       setBio(storedDraft.bio);
       setAvatarPreview(
         typeof storedDraft.avatarUrl === 'string' && storedDraft.avatarUrl.length > 0
@@ -114,7 +116,8 @@ export function ProfilePage() {
           : currentUser.avatarUrl ?? null
       );
     } else {
-      setName(currentUser.name);
+      const fallbackName = currentUser.name.trim().length > 0 ? currentUser.name : 'Neuer Nutzer';
+      setName(fallbackName);
       setBio(currentUser.bio ?? '');
       setAvatarPreview(currentUser.avatarUrl ?? null);
     }
