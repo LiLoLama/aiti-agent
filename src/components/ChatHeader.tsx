@@ -1,4 +1,4 @@
-import { Bars3Icon } from '@heroicons/react/24/outline';
+import { Bars3Icon, MagnifyingGlassIcon } from '@heroicons/react/24/outline';
 import clsx from 'clsx';
 
 interface ChatHeaderProps {
@@ -10,6 +10,8 @@ interface ChatHeaderProps {
   userName?: string;
   userAvatar?: string;
   onOpenProfile?: () => void;
+  onToggleSearch?: () => void;
+  isSearchOpen?: boolean;
 }
 
 const statusCopy: Record<ChatHeaderProps['agentStatus'], string> = {
@@ -26,7 +28,9 @@ export function ChatHeader({
   agentAvatar,
   userName,
   userAvatar,
-  onOpenProfile
+  onOpenProfile,
+  onToggleSearch,
+  isSearchOpen
 }: ChatHeaderProps) {
   const statusColor = (() => {
     switch (agentStatus) {
@@ -61,20 +65,32 @@ export function ChatHeader({
           </div>
         </div>
       </div>
-      {userName && (
-        <button
-          onClick={onOpenProfile}
-          className="group flex items-center gap-3 rounded-full border border-white/10 bg-white/[0.05] px-3 py-2 text-left text-white/70 transition hover:bg-white/10"
-        >
-          <div className="relative h-10 w-10 overflow-hidden rounded-2xl border border-white/10">
-            <img src={userAvatar} alt={userName} className="h-full w-full object-cover" />
-          </div>
-          <div className="hidden text-sm font-semibold sm:block">
-            <p className="text-white">{userName}</p>
-            <p className="text-xs text-white/40 group-hover:text-white/60">Mein Profil</p>
-          </div>
-        </button>
-      )}
+      <div className="flex items-center gap-3">
+        {onToggleSearch && (
+          <button
+            type="button"
+            onClick={onToggleSearch}
+            className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/[0.05] p-2 text-white/70 transition hover:bg-white/10 lg:hidden"
+            aria-label={isSearchOpen ? 'Suche schließen' : 'Suche öffnen'}
+          >
+            <MagnifyingGlassIcon className="h-5 w-5" />
+          </button>
+        )}
+        {userName && (
+          <button
+            onClick={onOpenProfile}
+            className="group flex items-center gap-3 rounded-full border border-white/10 bg-white/[0.05] px-3 py-2 text-left text-white/70 transition hover:bg-white/10"
+          >
+            <div className="relative h-10 w-10 overflow-hidden rounded-2xl border border-white/10">
+              <img src={userAvatar} alt={userName} className="h-full w-full object-cover" />
+            </div>
+            <div className="hidden text-sm font-semibold sm:block">
+              <p className="text-white">{userName}</p>
+              <p className="text-xs text-white/40 group-hover:text-white/60">Mein Profil</p>
+            </div>
+          </button>
+        )}
+      </div>
     </header>
   );
 }

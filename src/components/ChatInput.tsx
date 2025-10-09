@@ -151,6 +151,26 @@ export function ChatInput({ onSendMessage, pushToTalkEnabled = true }: ChatInput
     throw new Error('unsupported');
   };
 
+  const ensureMediaRecorderSupport = async () => {
+    if (typeof window === 'undefined') {
+      return false;
+    }
+
+    if (typeof window.MediaRecorder !== 'undefined') {
+      return true;
+    }
+
+    try {
+      const module = await import('audio-recorder-polyfill');
+      const AudioRecorderPolyfill = module.default ?? module;
+      (window as typeof window & { MediaRecorder: any }).MediaRecorder = AudioRecorderPolyfill as unknown as typeof MediaRecorder;
+      return true;
+    } catch (error) {
+      console.error('Failed to load MediaRecorder polyfill', error);
+      return false;
+    }
+  };
+
   const startRecording = async () => {
     if (!pushToTalkEnabled) {
       setRecordingError('Die Audioaufnahme ist in den Einstellungen deaktiviert.');
@@ -161,7 +181,7 @@ export function ChatInput({ onSendMessage, pushToTalkEnabled = true }: ChatInput
       return;
     }
 
-    if (typeof window === 'undefined' || typeof window.MediaRecorder === 'undefined') {
+    if (!(await ensureMediaRecorderSupport())) {
       setRecordingError('Dein Browser unterstützt die benötigte Audioaufnahme-Schnittstelle nicht.');
       return;
     }
