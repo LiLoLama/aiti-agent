@@ -7,10 +7,6 @@ export interface WebhookSubmissionPayload {
   messageId: string;
   history: ChatMessage[];
   attachments: File[];
-  audio?: {
-    blob: Blob;
-    durationSeconds?: number;
-  };
 }
 
 export interface WebhookResponse {
@@ -18,7 +14,7 @@ export interface WebhookResponse {
   rawResponse: unknown;
 }
 
-function buildAuthHeaders(settings: AgentSettings): Record<string, string> {
+export function buildAuthHeaders(settings: AgentSettings): Record<string, string> {
   const headers: Record<string, string> = {};
 
   switch (settings.authType) {
@@ -44,6 +40,46 @@ function buildAuthHeaders(settings: AgentSettings): Record<string, string> {
 
   return headers;
 }
+
+const parseWebhookResponse = async (response: Response): Promise<WebhookResponse> => {
+  const contentType = response.headers.get('content-type') ?? '';
+  const isJson = contentType.includes('application/json');
+
+  if (!response.ok) {
+    const errorMessage = isJson ? JSON.stringify(await response.json()) : await response.text();
+    throw new Error(`Webhook Fehler (${response.status}): ${errorMessage}`);
+  }
+
+  let parsedResponse: unknown;
+  let messageText = '';
+
+  if (isJson) {
+    parsedResponse = await response.json();
+    if (parsedResponse && typeof parsedResponse === 'object' && 'message' in parsedResponse) {
+      const messageField = (parsedResponse as Record<string, unknown>).message;
+      messageText =
+        typeof messageField === 'string' ? messageField : JSON.stringify(messageField, null, 2);
+    } else if (typeof parsedResponse === 'string') {
+      messageText = parsedResponse;
+    } else {
+      messageText = JSON.stringify(parsedResponse, null, 2);
+    }
+  } else {
+    messageText = await response.text();
+    parsedResponse = messageText;
+  }
+
+  messageText = messageText.trim();
+
+  if (!messageText) {
+    messageText = 'Der Webhook hat keine Nachricht zurückgeliefert.';
+  }
+
+  return {
+    message: messageText,
+    rawResponse: parsedResponse
+  };
+};
 
 export interface WebhookRequestOptions {
   /**
@@ -72,13 +108,6 @@ export async function sendWebhookMessage(
     formData.append(`attachment_${index + 1}`, file, file.name);
   });
 
-  if (payload.audio) {
-    formData.append('audio', payload.audio.blob, `audio-message-${Date.now()}.webm`);
-    if (typeof payload.audio.durationSeconds === 'number') {
-      formData.append('audioDurationSeconds', String(payload.audio.durationSeconds));
-    }
-  }
-
   const headers = buildAuthHeaders(settings);
   const { responseTimeoutMs = 20000 } = options;
 
@@ -92,46 +121,58 @@ export async function sendWebhookMessage(
       headers,
       signal: controller.signal
     });
-
-    const contentType = response.headers.get('content-type') ?? '';
-    const isJson = contentType.includes('application/json');
-
-    if (!response.ok) {
-      const errorMessage = isJson ? JSON.stringify(await response.json()) : await response.text();
-      throw new Error(`Webhook Fehler (${response.status}): ${errorMessage}`);
+    return await parseWebhookResponse(response);
+  } catch (error) {
+    if ((error as Error).name === 'AbortError') {
+      throw new Error('Die Verbindung zum Webhook hat zu lange gedauert. Bitte versuche es erneut.');
     }
 
-    let parsedResponse: unknown;
-    let messageText = '';
+    throw error instanceof Error
+      ? error
+      : new Error('Unbekannter Fehler beim Aufruf des Webhooks.');
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
 
-    if (isJson) {
-      parsedResponse = await response.json();
-      if (parsedResponse && typeof parsedResponse === 'object' && 'message' in parsedResponse) {
-        const messageField = (parsedResponse as Record<string, unknown>).message;
-        messageText =
-          typeof messageField === 'string'
-            ? messageField
-            : JSON.stringify(messageField, null, 2);
-      } else if (typeof parsedResponse === 'string') {
-        messageText = parsedResponse;
-      } else {
-        messageText = JSON.stringify(parsedResponse, null, 2);
-      }
-    } else {
-      messageText = await response.text();
-      parsedResponse = messageText;
-    }
+export interface AudioWebhookNotificationPayload {
+  message_id: string;
+  profile_id: string;
+  conversation_id: string;
+  storage_path: string;
+  signed_url: string;
+  mime: string;
+  duration_ms: number;
+  waveform?: number[];
+}
 
-    messageText = messageText.trim();
+export async function sendAudioWebhookNotification(
+  settings: AgentSettings,
+  payload: AudioWebhookNotificationPayload,
+  options: WebhookRequestOptions = {}
+): Promise<WebhookResponse> {
+  if (!settings.webhookUrl) {
+    throw new Error('Kein Webhook konfiguriert. Hinterlege die URL in den Einstellungen.');
+  }
 
-    if (!messageText) {
-      messageText = 'Der Webhook hat keine Nachricht zurückgeliefert.';
-    }
+  const headers: Record<string, string> = {
+    ...buildAuthHeaders(settings),
+    'Content-Type': 'application/json'
+  };
+  const { responseTimeoutMs = 20000 } = options;
 
-    return {
-      message: messageText,
-      rawResponse: parsedResponse
-    };
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), responseTimeoutMs);
+
+  try {
+    const response = await fetch(settings.webhookUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+
+    return await parseWebhookResponse(response);
   } catch (error) {
     if ((error as Error).name === 'AbortError') {
       throw new Error('Die Verbindung zum Webhook hat zu lange gedauert. Bitte versuche es erneut.');

@@ -15,9 +15,10 @@ import agentAvatar from '../assets/agent-avatar.png';
 import userAvatar from '../assets/default-user.svg';
 import { AgentSettings } from '../types/settings';
 import { loadAgentSettings } from '../utils/storage';
-import { sendWebhookMessage } from '../utils/webhook';
+import { sendAudioWebhookNotification, sendWebhookMessage } from '../utils/webhook';
 import { applyColorScheme } from '../utils/theme';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import {
   deleteAgentConversation,
   fetchAgentConversations,
@@ -29,6 +30,7 @@ import {
   applyIntegrationSecretToSettings,
   fetchIntegrationSecret
 } from '../services/integrationSecretsService';
+import { uploadAndPersistAudioMessage } from '../services/audioMessageService';
 
 const formatTimestamp = (date: Date) =>
   date.toLocaleTimeString('de-DE', {
@@ -85,6 +87,7 @@ const createInitialChat = (agentId: string, agentName: string, greeting: string)
 export function ChatPage() {
   const navigate = useNavigate();
   const { currentUser } = useAuth();
+  const { showToast } = useToast();
   const [settings, setSettings] = useState<AgentSettings>(() => loadAgentSettings());
   const [conversations, setConversations] = useState<Record<string, Chat>>({});
   const [activeAgentId, setActiveAgentId] = useState<string | null>(null);
@@ -417,6 +420,7 @@ export function ChatPage() {
 
     const now = new Date();
     const files = submission.files ?? [];
+    const audioRecording = submission.audio ?? null;
 
     const fileAttachments: ChatAttachment[] = await Promise.all(
       files.map(async (file) => ({
@@ -429,16 +433,18 @@ export function ChatPage() {
       }))
     );
 
-    const audioAttachments: ChatAttachment[] = submission.audio
+    const audioAttachments: ChatAttachment[] = audioRecording
       ? [
           {
             id: createId(),
             name: `Audio-${formatTimestamp(now)}`,
-            size: submission.audio.blob.size,
-            type: submission.audio.blob.type || 'audio/webm',
-            url: await blobToDataUrl(submission.audio.blob),
+            size: audioRecording.blob.size,
+            type: audioRecording.mimeType || 'audio/webm',
+            url: await blobToDataUrl(audioRecording.blob),
             kind: 'audio' as const,
-            durationSeconds: submission.audio.durationSeconds ?? undefined
+            durationSeconds: Number.isFinite(audioRecording.durationMs)
+              ? Number((Math.max(0, audioRecording.durationMs) / 1000).toFixed(1))
+              : undefined
           }
         ]
       : [];
@@ -510,19 +516,40 @@ export function ChatPage() {
     };
 
     try {
-      const webhookResponse = await sendWebhookMessage(webhookSettings, {
-        chatId: chatAfterUserMessage.id,
-        message: trimmedText,
-        messageId: userMessage.id,
-        history: chatAfterUserMessage.messages,
-        attachments: files,
-        audio: submission.audio
-          ? {
-              blob: submission.audio.blob,
-              durationSeconds: submission.audio.durationSeconds ?? undefined
-            }
-          : undefined
-      });
+      const webhookResponse = audioRecording
+        ? await (async () => {
+            const uploadResult = await uploadAndPersistAudioMessage({
+              profileId: currentUser.id,
+              conversationId: chatAfterUserMessage.id,
+              recording: {
+                blob: audioRecording.blob,
+                mimeType: audioRecording.mimeType,
+                durationMs: audioRecording.durationMs,
+                waveform: audioRecording.waveform
+              }
+            });
+
+            return sendAudioWebhookNotification(
+              webhookSettings,
+              {
+                message_id: uploadResult.messageId,
+                profile_id: currentUser.id,
+                conversation_id: chatAfterUserMessage.id,
+                storage_path: uploadResult.storagePath,
+                signed_url: uploadResult.signedUrl,
+                mime: uploadResult.meta.mime,
+                duration_ms: uploadResult.meta.duration_ms,
+                ...(uploadResult.meta.waveform ? { waveform: uploadResult.meta.waveform } : {})
+              }
+            );
+          })()
+        : await sendWebhookMessage(webhookSettings, {
+            chatId: chatAfterUserMessage.id,
+            message: trimmedText,
+            messageId: userMessage.id,
+            history: chatAfterUserMessage.messages,
+            attachments: files
+          });
 
       const responseDate = new Date();
       const agentMessage: ChatMessage = {
@@ -561,13 +588,17 @@ export function ChatPage() {
       }
     } catch (error) {
       const errorDate = new Date();
+      const fallbackDescription = 'Unbekannter Fehler beim Webhook-Aufruf.';
+      const errorDescription =
+        error instanceof Error && error.message ? error.message : fallbackDescription;
       const agentErrorMessage: ChatMessage = {
         id: createId(),
         author: 'agent',
-        content:
-          error instanceof Error
-            ? `Webhook Fehler: ${error.message}`
-            : 'Unbekannter Fehler beim Webhook-Aufruf.',
+        content: audioRecording
+          ? `Audio-Webhook Fehler: ${errorDescription}`
+          : error instanceof Error
+          ? `Webhook Fehler: ${errorDescription}`
+          : fallbackDescription,
         timestamp: formatTimestamp(errorDate)
       };
       const errorPreview = toPreview(agentErrorMessage.content);
@@ -597,6 +628,15 @@ export function ChatPage() {
         });
       } catch (persistError) {
         console.error('Fehlernachricht konnte nicht gespeichert werden.', persistError);
+      }
+
+      if (audioRecording) {
+        showToast({
+          type: 'error',
+          title: 'Audionachricht fehlgeschlagen',
+          description: errorDescription
+        });
+        throw error instanceof Error ? error : new Error(errorDescription);
       }
     } finally {
       setPendingResponseAgentId(null);
