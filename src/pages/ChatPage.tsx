@@ -627,7 +627,24 @@ export function ChatPage() {
             userName={currentUser?.name}
             userAvatar={accountAvatar}
             onOpenProfile={() => navigate('/profile')}
+            onToggleSearch={() => setSearchOpen((prev) => !prev)}
+            isSearchOpen={isSearchOpen}
           />
+
+          {isSearchOpen && (
+            <div className="flex items-center gap-3 border-b border-white/10 bg-[#161616]/80 px-4 py-3 backdrop-blur-xl lg:hidden">
+              <input
+                className="flex-1 bg-transparent text-sm text-white placeholder:text-white/40 focus:outline-none"
+                placeholder="Im Chat suchen"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                autoFocus
+              />
+              {searchActive && (
+                <span className="text-xs uppercase tracking-[0.2em] text-white/40">{searchResultCount} Treffer</span>
+              )}
+            </div>
+          )}
 
           <div className="hidden items-center justify-between px-4 pt-4 md:px-6 lg:flex">
             <button
