@@ -147,12 +147,13 @@ const mapProfileRowToAuthUser = (
   const fallbackAvatar = fallback?.avatarUrl ?? null;
   const fallbackEmailVerified = fallback?.emailVerified ?? false;
 
-  const preferredName = row.display_name?.trim().length ? row.display_name.trim() : null;
-  const secondaryName = row.name?.trim().length ? row.name.trim() : null;
-
   return {
     id: row.id,
-    name: preferredName ?? secondaryName ?? fallbackName ?? fallbackEmail ?? 'Neuer Nutzer',
+    name:
+      (row.display_name?.trim().length ? row.display_name.trim() : null) ??
+      fallbackName ??
+      fallbackEmail ??
+      'Neuer Nutzer',
     email: row.email ?? fallbackEmail,
     role: row.role === 'admin' ? 'admin' : 'user',
     isActive: row.is_active ?? true,
@@ -300,7 +301,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (isRowLevelSecurityError(agentsError)) {
             const fallbackUsers = (profileRows ?? []).map((row) =>
               mapProfileRowToAuthUser(row as ProfileRow, [], {
-                name: row.display_name ?? row.name ?? undefined,
+                name: row.display_name ?? undefined,
                 email: row.email ?? undefined,
                 avatarUrl: row.avatar_url ?? undefined
               })
@@ -322,7 +323,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         const nextUsers = (profileRows ?? []).map((row) =>
           mapProfileRowToAuthUser(row as ProfileRow, agentsByProfile.get(row.id) ?? [], {
-            name: row.display_name ?? row.name ?? undefined,
+            name: row.display_name ?? undefined,
             email: row.email ?? undefined,
             avatarUrl: row.avatar_url ?? undefined
           })
