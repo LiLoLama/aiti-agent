@@ -22,7 +22,8 @@ import {
   deleteAgentConversation,
   fetchAgentConversations,
   mapConversationToChat,
-  upsertAgentConversation
+  upsertAgentConversation,
+  type AgentConversationUpdatePayload
 } from '../services/chatService';
 import {
   applyIntegrationSecretToSettings,
@@ -211,7 +212,8 @@ export function ChatPage() {
                 agentName,
                 agentDescription: agent.description ?? '',
                 agentAvatarUrl: agent.avatarUrl ?? null,
-                agentWebhookUrl: agent.webhookUrl ?? null
+                agentWebhookUrl: agent.webhookUrl ?? null,
+                agentTools: agent.tools
               })
             );
             return;
@@ -220,7 +222,7 @@ export function ChatPage() {
           const chat = mapConversationToChat(record, agentName, defaultPreview);
           nextConversations[agentId] = chat;
 
-          const metadataUpdates: Record<string, string | null> = {};
+          const metadataUpdates: AgentConversationUpdatePayload = {};
           if (record.agent_name !== agentName) {
             metadataUpdates.agentName = agentName;
           }
@@ -232,6 +234,15 @@ export function ChatPage() {
           }
           if ((record.agent_webhook_url ?? null) !== (agent.webhookUrl ?? null)) {
             metadataUpdates.agentWebhookUrl = agent.webhookUrl ?? null;
+          }
+          const existingTools = record.agent_tools ?? [];
+          const desiredTools = agent.tools ?? [];
+          const toolsChanged =
+            existingTools.length !== desiredTools.length ||
+            existingTools.some((tool, index) => tool !== desiredTools[index]);
+
+          if (toolsChanged) {
+            metadataUpdates.agentTools = desiredTools;
           }
 
           if (Object.keys(metadataUpdates).length > 0) {
@@ -396,7 +407,8 @@ export function ChatPage() {
           agentName: chat.name,
           agentDescription: selectedAgent.description ?? '',
           agentAvatarUrl: selectedAgent.avatarUrl ?? null,
-          agentWebhookUrl: selectedAgent.webhookUrl ?? null
+          agentWebhookUrl: selectedAgent.webhookUrl ?? null,
+          agentTools: selectedAgent.tools
         });
       } catch (error) {
         console.error('Initiale Konversation konnte nicht gespeichert werden.', error);
@@ -480,7 +492,8 @@ export function ChatPage() {
         agentName: chatAfterUserMessage.name,
         agentDescription: selectedAgent.description ?? '',
         agentAvatarUrl: selectedAgent.avatarUrl ?? null,
-        agentWebhookUrl: selectedAgent.webhookUrl ?? null
+        agentWebhookUrl: selectedAgent.webhookUrl ?? null,
+        agentTools: selectedAgent.tools
       });
     } catch (error) {
       console.error('Nachricht konnte nicht gespeichert werden.', error);
@@ -540,7 +553,8 @@ export function ChatPage() {
           agentName: chatAfterAgent.name,
           agentDescription: selectedAgent.description ?? '',
           agentAvatarUrl: selectedAgent.avatarUrl ?? null,
-          agentWebhookUrl: selectedAgent.webhookUrl ?? null
+          agentWebhookUrl: selectedAgent.webhookUrl ?? null,
+          agentTools: selectedAgent.tools
         });
       } catch (persistError) {
         console.error('Antwort konnte nicht gespeichert werden.', persistError);
@@ -578,7 +592,8 @@ export function ChatPage() {
           agentName: chatWithError.name,
           agentDescription: selectedAgent.description ?? '',
           agentAvatarUrl: selectedAgent.avatarUrl ?? null,
-          agentWebhookUrl: selectedAgent.webhookUrl ?? null
+          agentWebhookUrl: selectedAgent.webhookUrl ?? null,
+          agentTools: selectedAgent.tools
         });
       } catch (persistError) {
         console.error('Fehlernachricht konnte nicht gespeichert werden.', persistError);
