@@ -105,14 +105,25 @@ export function ChatOverviewPanel({
   );
 
   return (
-    <aside
-      className={clsx(
-        'relative hidden w-full max-w-md flex-col border-r border-white/5 bg-[#161616]/70 backdrop-blur-xl lg:flex',
-        isMobileOpen && 'fixed inset-y-0 left-0 z-40 block max-w-sm'
+    <>
+      <aside
+        className={clsx(
+          'relative w-full max-w-md flex-col border-r border-white/5 bg-[#161616]/70 backdrop-blur-xl transition-all duration-300',
+          isMobileOpen ? 'fixed inset-y-0 left-0 z-40 flex max-w-sm shadow-2xl lg:relative lg:flex lg:max-w-md' : 'hidden lg:flex'
+        )}
+      >
+        <div className="absolute inset-0 bg-[#161616]/80" />
+        <div className="relative flex h-full flex-col">{PanelContent}</div>
+      </aside>
+
+      {isMobileOpen && (
+        <button
+          type="button"
+          aria-label="Workspace schließen"
+          onClick={onCloseMobile}
+          className="fixed inset-0 z-30 bg-black/50 backdrop-blur-sm transition-opacity lg:hidden"
+        />
       )}
-    >
-      <div className="absolute inset-0 bg-[#161616]/80" />
-      <div className="relative flex h-full flex-col">{PanelContent}</div>
-    </aside>
+    </>
   );
 }
