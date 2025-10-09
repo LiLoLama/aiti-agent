@@ -1,4 +1,5 @@
 import { Chat } from '../data/sampleChats';
+import { AuthUser } from '../types/auth';
 import { AgentSettings, DEFAULT_AGENT_SETTINGS } from '../types/settings';
 
 const SETTINGS_STORAGE_KEY = 'aiti-agent-settings';
@@ -6,6 +7,24 @@ const CHATS_STORAGE_KEY = 'aiti-agent-chats';
 const FOLDERS_STORAGE_KEY = 'aiti-agent-folders';
 const PROFILE_AVATAR_STORAGE_KEY = 'aiti-agent-profile-avatar';
 const AGENT_AVATAR_STORAGE_KEY = 'aiti-agent-agent-avatar';
+const AUTH_CACHE_STORAGE_KEY = 'aiti-auth-cache';
+const PROFILE_DRAFT_STORAGE_PREFIX = 'aiti-profile-draft:';
+const AGENT_DRAFT_STORAGE_PREFIX = 'aiti-agent-draft:';
+const DRAFT_TTL_MS = 1000 * 60 * 60 * 24 * 3; // 3 Tage
+
+export interface ProfileDraftSnapshot {
+  name: string;
+  bio: string;
+  avatarUrl: string | null;
+}
+
+export interface AgentDraftSnapshot {
+  name: string;
+  description: string;
+  tools: string;
+  webhookUrl: string;
+  avatarUrl: string | null;
+}
 
 function readImageFromStorage(key: string): string | null {
   if (typeof window === 'undefined') {
@@ -101,6 +120,200 @@ export function loadAgentSettings(): AgentSettings {
       profileAvatarImage: readImageFromStorage(PROFILE_AVATAR_STORAGE_KEY),
       agentAvatarImage: readImageFromStorage(AGENT_AVATAR_STORAGE_KEY)
     };
+  }
+}
+
+function isDraftExpired(updatedAt: number | undefined) {
+  if (typeof updatedAt !== 'number') {
+    return true;
+  }
+
+  return Date.now() - updatedAt > DRAFT_TTL_MS;
+}
+
+function getProfileDraftStorageKey(userId: string | null | undefined) {
+  if (!userId) {
+    return null;
+  }
+
+  return `${PROFILE_DRAFT_STORAGE_PREFIX}${userId}`;
+}
+
+function getAgentDraftStorageKey(userId: string | null | undefined) {
+  if (!userId) {
+    return null;
+  }
+
+  return `${AGENT_DRAFT_STORAGE_PREFIX}${userId}`;
+}
+
+export function loadCachedAuthUser(): AuthUser | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(AUTH_CACHE_STORAGE_KEY);
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw) as AuthUser & { cachedAt?: number };
+    if (parsed && typeof parsed === 'object') {
+      return parsed;
+    }
+
+    return null;
+  } catch (error) {
+    console.error('Failed to load cached auth user', error);
+    return null;
+  }
+}
+
+export function saveCachedAuthUser(user: AuthUser | null) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    if (!user) {
+      window.localStorage.removeItem(AUTH_CACHE_STORAGE_KEY);
+      return;
+    }
+
+    window.localStorage.setItem(AUTH_CACHE_STORAGE_KEY, JSON.stringify(user));
+  } catch (error) {
+    console.error('Failed to persist cached auth user', error);
+  }
+}
+
+export function loadProfileDraft(userId: string): ProfileDraftSnapshot | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  const storageKey = getProfileDraftStorageKey(userId);
+  if (!storageKey) {
+    return null;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw) as ProfileDraftSnapshot & { updatedAt?: number };
+    if (isDraftExpired(parsed.updatedAt)) {
+      window.localStorage.removeItem(storageKey);
+      return null;
+    }
+
+    const { name = '', bio = '', avatarUrl = null } = parsed ?? {};
+    return {
+      name,
+      bio,
+      avatarUrl
+    };
+  } catch (error) {
+    console.error('Failed to load profile draft', error);
+    return null;
+  }
+}
+
+export function saveProfileDraft(userId: string, draft: ProfileDraftSnapshot | null) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  const storageKey = getProfileDraftStorageKey(userId);
+  if (!storageKey) {
+    return;
+  }
+
+  try {
+    if (!draft) {
+      window.localStorage.removeItem(storageKey);
+      return;
+    }
+
+    const payload = {
+      ...draft,
+      updatedAt: Date.now()
+    };
+    window.localStorage.setItem(storageKey, JSON.stringify(payload));
+  } catch (error) {
+    console.error('Failed to save profile draft', error);
+  }
+}
+
+export function loadAgentDraft(userId: string): AgentDraftSnapshot | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  const storageKey = getAgentDraftStorageKey(userId);
+  if (!storageKey) {
+    return null;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw) as AgentDraftSnapshot & { updatedAt?: number };
+    if (isDraftExpired(parsed.updatedAt)) {
+      window.localStorage.removeItem(storageKey);
+      return null;
+    }
+
+    const {
+      name = '',
+      description = '',
+      tools = '',
+      webhookUrl = '',
+      avatarUrl = null
+    } = parsed ?? {};
+
+    return {
+      name,
+      description,
+      tools,
+      webhookUrl,
+      avatarUrl
+    };
+  } catch (error) {
+    console.error('Failed to load agent draft', error);
+    return null;
+  }
+}
+
+export function saveAgentDraft(userId: string, draft: AgentDraftSnapshot | null) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  const storageKey = getAgentDraftStorageKey(userId);
+  if (!storageKey) {
+    return;
+  }
+
+  try {
+    if (!draft) {
+      window.localStorage.removeItem(storageKey);
+      return;
+    }
+
+    const payload = {
+      ...draft,
+      updatedAt: Date.now()
+    };
+
+    window.localStorage.setItem(storageKey, JSON.stringify(payload));
+  } catch (error) {
+    console.error('Failed to save agent draft', error);
   }
 }
 

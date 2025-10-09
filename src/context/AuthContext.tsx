@@ -10,6 +10,7 @@ import {
 } from 'react';
 import { User } from '@supabase/supabase-js';
 import supabase from '../utils/supabase';
+import { loadCachedAuthUser, saveCachedAuthUser } from '../utils/storage';
 import {
   AgentDraft,
   AgentProfile,
@@ -260,16 +261,19 @@ const ensureProfileForUser = async (user: User, preferredName?: string) => {
 };
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [currentUser, setCurrentUserState] = useState<AuthUser | null>(null);
-  const [users, setUsers] = useState<AuthUser[]>([]);
+  const cachedUserRef = useRef<AuthUser | null>(loadCachedAuthUser());
+  const [currentUser, setCurrentUserState] = useState<AuthUser | null>(cachedUserRef.current);
+  const [users, setUsers] = useState<AuthUser[]>(() => (cachedUserRef.current ? [cachedUserRef.current] : []));
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  const currentUserRef = useRef<AuthUser | null>(null);
+  const currentUserRef = useRef<AuthUser | null>(cachedUserRef.current);
   const currentUserLoaderRef = useRef<Promise<void> | null>(null);
 
   const setCurrentUser = useCallback((nextUser: AuthUser | null) => {
     currentUserRef.current = nextUser;
     setCurrentUserState(nextUser);
+    cachedUserRef.current = nextUser;
+    saveCachedAuthUser(nextUser);
   }, []);
 
   const refreshUsersList = useCallback(
