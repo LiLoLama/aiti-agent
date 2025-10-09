@@ -241,7 +241,6 @@ const ensureProfileForUser = async (user: User, preferredName?: string) => {
     id: user.id,
     email: user.email ?? '',
     display_name: normalizedName,
-    name: normalizedName,
     avatar_url: avatar,
     role: 'user',
     bio: '',
@@ -513,7 +512,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (typeof updates.name === 'string') {
         const trimmed = updates.name.trim();
         payload.display_name = trimmed.length > 0 ? trimmed : currentUser.name;
-        payload.name = trimmed.length > 0 ? trimmed : currentUser.name;
       }
 
       if ('avatarUrl' in updates) {
