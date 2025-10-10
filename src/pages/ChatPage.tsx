@@ -643,7 +643,7 @@ export function ChatPage() {
   };
 
   return (
-    <div className="relative flex min-h-[100dvh] flex-col overflow-hidden bg-[#111111] text-white">
+    <div className="relative flex h-[100dvh] flex-col overflow-hidden bg-[#111111] text-white">
       <div className="flex flex-1 overflow-hidden">
         {(!isWorkspaceCollapsed || isMobileWorkspaceOpen) && (
           <ChatOverviewPanel
