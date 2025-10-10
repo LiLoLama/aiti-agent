@@ -213,6 +213,7 @@ export function ChatInput({ onSendMessage, pushToTalkEnabled = true }: ChatInput
     }
 
     const legacyGetUserMedia =
+      (navigator as any).getUserMedia ||
       (navigator as any).webkitGetUserMedia ||
       (navigator as any).mozGetUserMedia ||
       (navigator as any).msGetUserMedia;

@@ -519,7 +519,6 @@ export function ChatPage() {
       const webhookResponse = audioRecording
         ? await (async () => {
             const uploadResult = await uploadAndPersistAudioMessage({
-              profileId: currentUser.id,
               conversationId: chatAfterUserMessage.id,
               recording: {
                 blob: audioRecording.blob,

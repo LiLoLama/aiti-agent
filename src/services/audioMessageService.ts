@@ -78,21 +78,36 @@ const deriveExtensionFromMime = (mimeType: string): string => {
   return 'webm';
 };
 
+const generateMessageId = () => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+};
+
 export const uploadAndPersistAudioMessage = async ({
-  profileId,
   conversationId,
   recording
 }: {
-  profileId: string;
   conversationId: string;
   recording: AudioRecordingPayload;
 }): Promise<AudioMessageUploadResult> => {
+  const {
+    data: { session }
+  } = await supabase.auth.getSession();
+
+  if (!session) {
+    throw new Error('Nicht authentifiziert.');
+  }
+
+  const profileId = session.user.id;
   const mimeType = recording.mimeType?.trim() || DEFAULT_AUDIO_MIME;
   const durationMs = sanitizeDuration(recording.durationMs);
   const waveform = sanitizeWaveform(recording.waveform);
   const extension = deriveExtensionFromMime(mimeType);
   const timestamp = Date.now();
-  const storagePath = `${AUDIO_BUCKET_NAME}/${profileId}/${conversationId}/${timestamp}.${extension}`;
+  const storagePath = `${profileId}/${conversationId}/${timestamp}.${extension}`;
 
   const { error: uploadError } = await supabase.storage
     .from(AUDIO_BUCKET_NAME)
@@ -120,28 +135,25 @@ export const uploadAndPersistAudioMessage = async ({
     ...(waveform ? { waveform } : {})
   };
 
-  const { data: insertedRow, error: insertError } = await supabase
+  const messageId = generateMessageId();
+
+  const { error: insertError } = await supabase
     .from('messages')
     .insert({
+      id: messageId,
       profile_id: profileId,
       conversation_id: conversationId,
       type: 'audio',
       content: null,
       meta
-    })
-    .select('id')
-    .single();
+    });
 
   if (insertError) {
     throw new Error(insertError.message ?? 'Nachricht konnte nicht gespeichert werden.');
   }
 
-  if (!insertedRow || typeof insertedRow.id !== 'string') {
-    throw new Error('Ungültige Antwort beim Speichern der Nachricht.');
-  }
-
   return {
-    messageId: insertedRow.id,
+    messageId,
     storagePath,
     signedUrl: signedUrlData.signedUrl,
     meta
