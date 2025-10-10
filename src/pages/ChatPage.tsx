@@ -75,6 +75,7 @@ const createInitialChat = (agentId: string, agentName: string, greeting: string)
   return {
     chat: {
       id: agentId,
+      conversationId: null,
       name: agentName,
       lastUpdated: formatTimestamp(timestamp),
       preview: toPreview(greeting),
@@ -218,6 +219,15 @@ export function ChatPage() {
                 agentWebhookUrl: agent.webhookUrl ?? null,
                 agentTools: agent.tools
               })
+                .then((persistedConversation) => {
+                  nextConversations[agentId] = {
+                    ...nextConversations[agentId],
+                    conversationId: persistedConversation.id
+                  };
+                })
+                .catch((error) => {
+                  console.error('Initiale Konversation konnte nicht synchronisiert werden.', error);
+                })
             );
             return;
           }
@@ -253,6 +263,15 @@ export function ChatPage() {
               upsertAgentConversation(profileId, agentId, {
                 ...metadataUpdates
               })
+                .then((persistedConversation) => {
+                  nextConversations[agentId] = {
+                    ...nextConversations[agentId],
+                    conversationId: persistedConversation.id
+                  };
+                })
+                .catch((error) => {
+                  console.error('Konversations-Metadaten konnten nicht synchronisiert werden.', error);
+                })
             );
           }
         });
@@ -403,7 +422,7 @@ export function ChatPage() {
         [agentId]: chat
       }));
       try {
-        await upsertAgentConversation(currentUser.id, agentId, {
+        const persistedConversation = await upsertAgentConversation(currentUser.id, agentId, {
           messages: chat.messages,
           summary: chat.preview,
           lastMessageAt: iso,
@@ -413,9 +432,21 @@ export function ChatPage() {
           agentWebhookUrl: selectedAgent.webhookUrl ?? null,
           agentTools: selectedAgent.tools
         });
+        baseChat = {
+          ...chat,
+          conversationId: persistedConversation.id
+        };
+        setConversations((prev) => ({
+          ...prev,
+          [agentId]: baseChat
+        }));
       } catch (error) {
         console.error('Initiale Konversation konnte nicht gespeichert werden.', error);
       }
+    }
+
+    if (!baseChat) {
+      return;
     }
 
     const now = new Date();
@@ -474,8 +505,9 @@ export function ChatPage() {
       : attachments[0]?.name ?? 'Neue Nachricht';
     const previewText = toPreview(previewSource);
 
-    const chatAfterUserMessage: Chat = {
+    let chatAfterUserMessage: Chat = {
       id: baseChat.id,
+      conversationId: baseChat.conversationId ?? null,
       name: baseChat.name,
       messages: [...baseChat.messages, userMessage],
       lastUpdated: formatTimestamp(now),
@@ -491,7 +523,7 @@ export function ChatPage() {
     setPendingResponseAgentId(agentId);
 
     try {
-      await upsertAgentConversation(currentUser.id, agentId, {
+      const persistedConversation = await upsertAgentConversation(currentUser.id, agentId, {
         messages: chatAfterUserMessage.messages,
         summary: chatAfterUserMessage.preview,
         lastMessageAt: now.toISOString(),
@@ -501,6 +533,18 @@ export function ChatPage() {
         agentWebhookUrl: selectedAgent.webhookUrl ?? null,
         agentTools: selectedAgent.tools
       });
+      chatAfterUserMessage = {
+        ...chatAfterUserMessage,
+        conversationId: persistedConversation.id
+      };
+      baseChat = {
+        ...baseChat,
+        conversationId: persistedConversation.id
+      };
+      setConversations((prev) => ({
+        ...prev,
+        [agentId]: chatAfterUserMessage
+      }));
     } catch (error) {
       console.error('Nachricht konnte nicht gespeichert werden.', error);
       window.alert('Deine Nachricht konnte nicht gespeichert werden. Bitte versuche es erneut.');
@@ -518,8 +562,12 @@ export function ChatPage() {
     try {
       const webhookResponse = audioRecording
         ? await (async () => {
+            if (!chatAfterUserMessage.conversationId) {
+              throw new Error('Konversations-ID konnte nicht bestimmt werden.');
+            }
+            const conversationRecordId = chatAfterUserMessage.conversationId;
             const uploadResult = await uploadAndPersistAudioMessage({
-              conversationId: chatAfterUserMessage.id,
+              conversationId: conversationRecordId,
               recording: {
                 blob: audioRecording.blob,
                 mimeType: audioRecording.mimeType,
@@ -533,7 +581,7 @@ export function ChatPage() {
               {
                 message_id: uploadResult.messageId,
                 profile_id: currentUser.id,
-                conversation_id: chatAfterUserMessage.id,
+                conversation_id: conversationRecordId,
                 storage_path: uploadResult.storagePath,
                 signed_url: uploadResult.signedUrl,
                 mime: uploadResult.meta.mime,

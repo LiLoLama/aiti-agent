@@ -18,6 +18,7 @@ export type ChatMessage = {
 
 export type Chat = {
   id: string;
+  conversationId: string | null;
   name: string;
   folder?: string;
   folderId?: string;

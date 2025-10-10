@@ -283,6 +283,7 @@ export const mapConversationToChat = (
 
   return {
     id: record.agent_id,
+    conversationId: record.id,
     name: record.agent_name ?? fallbackName,
     lastUpdated: formatDisplayTime(record.last_message_at ?? record.updated_at ?? record.created_at),
     preview: toPreview(summarySource),
