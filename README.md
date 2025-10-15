@@ -14,6 +14,7 @@ Der AITI Explorer Agent ist eine moderne React-Anwendung, mit der Teams ihre KI-
 - [Installation & lokale Entwicklung](#installation--lokale-entwicklung)
 - [Webhook-Anbindung](#webhook-anbindung)
 - [Lokale Speicherung & Branding](#lokale-speicherung--branding)
+- [iOS-Integration](#ios-integration)
 
 ## Überblick
 Die App stellt drei geschützte Bereiche (Chat, Einstellungen, Profil) sowie eine Login- und Registrierungsstrecke bereit und erzwingt die Anmeldung über einen zentralen Auth-Guard.【F:src/App.tsx†L1-L18】 Die Oberflächen wurden vollständig auf Deutsch gestaltet, um Agentenarbeit in deutschsprachigen Teams zu unterstützen.
@@ -74,3 +75,6 @@ Chatnachrichten werden zusammen mit Dateianhängen, Audioaufnahmen und Chatverla
 
 ## Lokale Speicherung & Branding
 Persönliche Einstellungen wie Profilname, Agenten-Branding, Farbschema, sowie lokal erstellte Chats und Ordner werden im Browser `localStorage` abgelegt. Bilder werden bei Bedarf komprimiert, um Speicher zu sparen. Änderungen lösen Events aus, die sowohl Profil- als auch Einstellungsseiten synchron halten.【F:src/utils/storage.ts†L1-L170】【F:src/pages/SettingsPage.tsx†L98-L389】【F:src/pages/ProfilePage.tsx†L82-L311】 Dadurch bleiben individuelle Anpassungen auch ohne Backend-Verbindung verfügbar.
+
+## iOS-Integration
+Eine native SwiftUI-Shell, die den gebauten Web-Client über `WKWebView` rendert, findest du im Ordner `ios/`. Die Datei [`ios/SETUP_GUIDE_DE.md`](ios/SETUP_GUIDE_DE.md) beschreibt Schritt für Schritt, wie der Vite-Build (`npm run build`) nach `ios/AITIExplorerAgent/WebAssets` kopiert, in Xcode eingebunden und anschließend im Simulator oder auf einem Gerät getestet wird. Die Swift-Dateien unter `ios/AITIExplorerAgent/App` liefern dafür das Grundgerüst und zeigen den Build-Status direkt in der App an.
