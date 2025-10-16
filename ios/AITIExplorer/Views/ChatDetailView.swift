@@ -130,7 +130,7 @@ private struct ChatBubble: View {
             VStack(alignment: message.author == .agent ? .leading : .trailing, spacing: 10) {
                 Text(message.content)
                     .padding(16)
-                    .foregroundStyle(message.author == .agent ? .primary : .white)
+                    .foregroundStyle(message.author == .agent ? .primary : Color.white)
                     .background(bubbleBackground)
                     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
 
@@ -246,7 +246,7 @@ private struct MessageComposer: View {
             } label: {
                 Image(systemName: "paperplane.fill")
                     .font(.title3.bold())
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Color.white)
                     .padding(12)
                     .background(Circle().fill(Color.accentColor))
             }
